@@ -22,7 +22,7 @@ def train_models(model_type, mode):
         conditional_training=True if mode == "conditions" else False,
         classical_parameter_reduction=True if model_type == "classical_eq" else False,
         epochs=2,  # Modifica il numero di epoche
-        batch_size=64,  # Riduci il batch size per Colab
+        batch_size=1024,  # Riduci il batch size per Colab
     )
 
 
