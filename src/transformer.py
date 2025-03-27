@@ -36,7 +36,9 @@ class Transformer_Dataset(Dataset):
     """
 
     def __init__(self, data_path=None, block_size=22):
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write("Initializing Transformer_Dataset\n")
+        
         # Get the SMILES strings from the data file
         data = pd.read_csv(data_path)
         smiles_col = "smiles" if "smiles" in data.columns else "SMILES"
@@ -83,6 +85,10 @@ class Transformer_Dataset(Dataset):
         else:
             # Add 2 for [CLS] and [EOS]
             self.block_size = 2 + block_size
+        
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - Dataset loaded with {len(self.smiles)} samples. Block size: {self.block_size}\n")
+
 
     # Method to return the length of the dataset
     def __len__(self):
@@ -93,19 +99,39 @@ class Transformer_Dataset(Dataset):
 
         # Tokenize the SMILES string and pad it to the block size
         smiles = "[CLS]" + self.smiles[idx].strip() + "[EOS]"
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - self.smiles[idx].strip(): {self.smiles[idx].strip()}\n")
+        
         smiles_tokens = self.smiles_regex.findall(smiles)
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - smiles_tokens: {smiles_tokens}\n")
+            
         smiles += "<pad>" * (self.block_size - len(smiles_tokens))
 
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - smiles after padding: {smiles}\n")
+            
         input_sequence = [self.stoi[s] for s in self.smiles_regex.findall(smiles)[:-1]]
         target_sequence = [self.stoi[s] for s in self.smiles_regex.findall(smiles)[1:]]
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - self.smiles_regex.findall(smiles): {self.smiles_regex.findall(smiles)}\n")
+            f.write(f"transformer.py - self.smiles_regex.findall(smiles)[:-1]: {self.smiles_regex.findall(smiles)[:-1]}\n")
+            f.write(f"transformer.py - self.smiles_regex.findall(smiles)[1:]: {self.smiles_regex.findall(smiles)[1:]}\n")
+            f.write(f"transformer.py - input_sequence: {input_sequence}\n")
+            f.write(f"transformer.py - target_sequence: {target_sequence}\n")
 
         physchem_properties = get_physchem_properties(self.smiles[idx].strip())
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - physchem_properties: {physchem_properties}\n")
 
-        return (
-            torch.tensor(input_sequence, dtype=torch.long),
-            torch.tensor(target_sequence, dtype=torch.long),
-            torch.tensor(physchem_properties, dtype=torch.float),
-        )
+        input_tensor = torch.tensor(input_sequence, dtype=torch.long)
+        target_tensor = torch.tensor(target_sequence, dtype=torch.long)
+        physchem_tensor = torch.tensor(physchem_properties, dtype=torch.float)
+        
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - Sample {idx}: Input Shape: {input_tensor.shape}, Target Shape: {target_tensor.shape}, Physchem Shape: {physchem_tensor.shape}\n")
+        
+        return input_tensor, target_tensor, physchem_tensor
 
     def tokenize_smiles(self, smiles):
         """
@@ -121,10 +147,16 @@ class Transformer_Dataset(Dataset):
         smiles = "[CLS]" + smiles.strip() + "[EOS]"
         smiles_tokens = self.smiles_regex.findall(smiles)
         smiles += "<pad>" * (self.block_size - len(smiles_tokens))
-        return [
+        tokenized = [
             self.stoi.get(s, self.stoi["<pad>"])
             for s in self.smiles_regex.findall(smiles)[:-1]
         ]
+        
+        print(f"Tokenized SMILES length: {len(tokenized)}")
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - Tokenized SMILES length: {len(tokenized)}\n")
+    
+        return tokenized
 
 
 class Transformer_Model(nn.Module):
@@ -192,11 +224,13 @@ class Transformer_Model(nn.Module):
         # token and position embeddings are the same, we set the number of qubits for token and position embeddings to be the same as well
         # Thus if only learning sequences (no additional embeddings; only token and position), the number of qubits in each register is the number of working qubits is divided by 2
         # If we are using conditional training, we divide the number of qubits by 3 to account for the additional physicochemical embeddings
+        print("Inizializzazione QuantumTransformer...")
         num_qubits_per_register = (
             num_qubits // 2 if not conditional_training else num_qubits // 3
         )
 
         if not self.classical_attention:
+            print("Inizializzazione embedding quantistici...")
             self._initialize_quantum_embeddings(
                 vocab_size,
                 ansatz_layers,
@@ -206,14 +240,21 @@ class Transformer_Model(nn.Module):
             )
 
         # Classical embeddings (always present, regardless of attention type for use in the value matrix)
+        print("Inizializzazione embedding classici...")
         self.token_embed = nn.Embedding(vocab_size, embed_dim)
         self.position_embed = nn.Parameter(torch.zeros(1, block_size, embed_dim))
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - Token Embedding: {self.token_embed.weight.size()}\n")
+            f.write(f"transformer.py - Position Embedding: {self.position_embed.shape}\n")
+        
         if conditional_training:
             self.physchem_embed = nn.Linear(physchem_dim, embed_dim)
-
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - PhysChem Embedding: {self.physchem_embed.weight.shape}\n")
+        
         # Optional classical parameter reduction of the embeddings which will propagate to query/key matrices to match quantum parameter count
         if self.classical_parameter_reduction:
+            print("Inizializzazione embedding classici ridotti...")
             self._initialize_reduced_classical_embeddings(
                 vocab_size,
                 ansatz_layers,
@@ -223,6 +264,7 @@ class Transformer_Model(nn.Module):
             )
 
         # Transformer architecture components
+        print("Inizializzazione componenti Transformer...")
         self.dropout = nn.Dropout(0.1)
         self.block = Transformer_Block(
             embed_dim=embed_dim,
@@ -237,7 +279,10 @@ class Transformer_Model(nn.Module):
         )
         self.layer_norm = nn.LayerNorm(embed_dim)
         self.output = nn.Linear(embed_dim, vocab_size)
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - LayerNorm: {self.layer_norm.weight.shape}\n")
+            f.write(f"transformer.py - Output Layer: {self.output.weight.shape}\n")
+    
     def _initialize_quantum_embeddings(
         self,
         vocab_size,
@@ -263,16 +308,22 @@ class Transformer_Model(nn.Module):
         self.token_embed_quantum_parameters = nn.Embedding(
             vocab_size, ansatz_layers * num_qubits_per_register
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - token_embed_quantum_parameters: {self.token_embed_quantum_parameters.weight.size()}\n")
         self._scale_quantum_parameters(self.token_embed_quantum_parameters.weight)
-
+        
         self.position_embed_quantum_parameters = nn.Parameter(
             torch.zeros(1, block_size, ansatz_layers * num_qubits_per_register)
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - position_embed_quantum_parameters: {self.position_embed_quantum_parameters.shape}\n")
 
         if self.conditional_training:
             self.physchem_embed_quantum_parameters = nn.Linear(
                 physchem_dim, ansatz_layers * num_qubits_per_register
             )
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - physchem_embed_quantum_parameters: {self.physchem_embed_quantum_parameters.shape}\n")
 
     def _scale_quantum_parameters(self, tensor):
         """Scales quantum parameters for better Hilbert space coverage."""
@@ -293,14 +344,21 @@ class Transformer_Model(nn.Module):
         self.reduced_token_embed = nn.Embedding(
             vocab_size, ansatz_layers * num_qubits_per_register
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - reduced_token_embed: {self.reduced_token_embed.weight.size()}\n")
+        
         self.reduced_position_embed = nn.Parameter(
             torch.zeros(1, block_size, ansatz_layers * num_qubits_per_register)
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - reduced_position_embed: {self.reduced_position_embed.shape}\n")
 
         if self.conditional_training:
             self.reduced_physchem_embed = nn.Linear(
                 physchem_dim, ansatz_layers * num_qubits_per_register
             )
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - reduced_physchem_embed: {self.reduced_physchem_embed.shape}\n")   
 
     def forward(
         self, idx: torch.Tensor, physchem_props: Optional[torch.Tensor] = None
@@ -323,10 +381,12 @@ class Transformer_Model(nn.Module):
               we need to create a separate set of token/position/physicochemical embeddings with reduced dimensionality
               so they can propagate to the reduced dimensionality query/key matrices.
         """
-
+        print("Forward...")
         # Get the batch size and sequence length
         B, T = idx.size()
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - Batch size: {B}, Sequence Lenght: {T}\n")
+                
         if self.conditional_training:
 
             # If we are using conditional training, we also need to define the physicochemical embeddings
@@ -334,13 +394,17 @@ class Transformer_Model(nn.Module):
             physchem_embeddings = (
                 self.physchem_embed(physchem_props).unsqueeze(1).expand(-1, T, -1)
             )
-
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - physchem_embeddings: {physchem_embeddings.shape}\n")
+                
             # Add token, position, physicochemical embeddings together to get the combined embeddings
             x = self.dropout(
                 self.token_embed(idx)
                 + self.position_embed[:, :T, :]
                 + physchem_embeddings
             )
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - x (token+position+prop): {x.shape}\n")
 
             # If we are running the classical (eq) model with conditions, we do the same as above but with reduced dimensionality embeddings
             reduced_physchem_embeddings = (
@@ -350,6 +414,9 @@ class Transformer_Model(nn.Module):
                 if self.classical_parameter_reduction
                 else None
             )
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - reduced_physchem_embeddings: {reduced_physchem_embeddings.shape}\n")
+
             reduced_x = (
                 self.dropout(
                     self.reduced_token_embed(idx)
@@ -359,6 +426,8 @@ class Transformer_Model(nn.Module):
                 if self.classical_parameter_reduction
                 else None
             )
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - reduced_x: {reduced_x.shape}\n")
 
         else:
             # If we are not using conditional training, we only need to add the token and position embeddings
@@ -371,6 +440,9 @@ class Transformer_Model(nn.Module):
                 if self.classical_parameter_reduction
                 else None
             )
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - x: {x.shape}\n")
+
 
         angles = None
 
@@ -381,11 +453,17 @@ class Transformer_Model(nn.Module):
             position_embedding_angles = self.position_embed_quantum_parameters[
                 :, :T, :
             ].expand(B, T, self.position_embed_quantum_parameters.shape[-1])
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - position_embedding_angles: {position_embedding_angles.shape}\n")
+
 
             # All the angles are stacked so they can be easily restructured, prepped, and fed into the custom CUDA-Q functions
             angles = torch.stack(
                 [self.token_embed_quantum_parameters(idx), position_embedding_angles]
             )
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"transformer.py - angles: {angles.shape}\n")
+
 
             if self.conditional_training:
 
@@ -398,18 +476,30 @@ class Transformer_Model(nn.Module):
                     0,
                     torch.pi,
                 )
+                with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                    f.write(f"transformer.py - physchem_embeddings_angles: {physchem_embeddings_angles.shape}\n")
+
                 angles = torch.cat(
                     [angles, physchem_embeddings_angles.unsqueeze(0)], dim=0
                 )
+                with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                    f.write(f"transformer.py - angles: {angles.shape}\n")
 
         # Perform the forward pass through the transformer block
         x, attn_weight = self.block(x, angles, reduced_x)
+        
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - x: {x.shape}, attn_weight: {attn_weight.shape}\n")
 
         # Apply layer normalization
         x = self.layer_norm(x)
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - x after norm: {x.shape}\n")
 
         # Generate the output logits
         logits = self.output(x)
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - logits: {logits.shape}\n")
 
         return logits, attn_weight
 
@@ -458,11 +548,17 @@ class Transformer_Block(nn.Module):
         self.classical_parameter_reduction = (
             classical_parameter_reduction if classical_attention else False
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - classical_attention: {self.classical_attention}\n")
+            f.write(f"transformer.py - classical_parameter_reduction: {self.classical_parameter_reduction}\n")
 
         # Layer Normalization
         self.layer_norm1 = nn.LayerNorm(embed_dim)
         self.layer_norm2 = nn.LayerNorm(embed_dim)
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - layer_norm1: {self.layer_norm1.normalized_shape}\n")
+            f.write(f"transformer.py - layer_norm2: {self.layer_norm2.normalized_shape}\n")
+            
         """
         Notes on choosing the dimensions to ensure an equal number of parameters between the classical and quantum models:
 
@@ -486,6 +582,7 @@ class Transformer_Block(nn.Module):
         """
 
         num_qubits_per_register = num_qubits // (3 if conditional_training else 2)
+        
         reduced_x_dim = (
             ansatz_layers * num_qubits_per_register
             if self.classical_parameter_reduction
@@ -496,6 +593,9 @@ class Transformer_Block(nn.Module):
             if self.classical_parameter_reduction
             else None
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - reduced_x_dim: {reduced_x_dim}\n")
+            f.write(f"transformer.py - reduced_qk_dim: {reduced_qk_dim}\n")
 
         # Initialize attention mechanism
         self.attention = (
@@ -524,12 +624,24 @@ class Transformer_Block(nn.Module):
             nn.Linear(4 * embed_dim, embed_dim),
             nn.Dropout(0.1),
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - MLP input: {embed_dim}, hidden: {4 * embed_dim}, output: {embed_dim}\n")
 
     def forward(self, x, angles, reduced_x):
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - Forward pass - input x: {x.shape}, angles: {angles.shape}, reduced_x: {reduced_x.shape if reduced_x is not None else 'None'}\n")
 
         y, attn_weight = self.attention(self.layer_norm1(x), angles, reduced_x)
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - After attention - y: {len(y)}, attn_weight: {attn_weight.shape}\n")
+            f.write(f"transformer.py - After attention - y: {y}, attn_weight: {attn_weight}\n")
+
         x = x + y
         x = x + self.mlp(self.layer_norm2(x))
+        
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - Output x: {x.shape}\n")
+        
         return x, attn_weight
 
 
@@ -569,7 +681,17 @@ class Self_Attention(nn.Module):
         self.value = nn.Linear(embed_dim, embed_dim, bias=False)
 
         self.projection = nn.Linear(embed_dim, embed_dim)
-
+        
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - Initialized Self-Attention Layer:\n")
+            f.write(f"transformer.py -   n_heads: {self.n_heads}\n")
+            f.write(f"transformer.py -   reduced_qk_dim: {self.reduced_qk_dim}\n")
+            f.write(f"transformer.py -   qk_dim: {qk_dim}\n")
+            f.write(f"transformer.py -   Query weight shape: {self.query.weight.shape}\n")
+            f.write(f"transformer.py -   Key weight shape: {self.key.weight.shape}\n")
+            f.write(f"transformer.py -   Value weight shape: {self.value.weight.shape}\n")
+            f.write(f"transformer.py -   Projection weight shape: {self.projection.weight.shape}\n\n")
+            
     def forward(
         self,
         x: Tensor,
@@ -616,5 +738,14 @@ class Self_Attention(nn.Module):
         y = torch.matmul(attn_weight, v)
         y = y.transpose(1, 2).contiguous().view(B, T, C)
 
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - Forward pass in Self-Attention:\n")
+            f.write(f"transformer.py -   Input shape: {x.shape}\n")
+            f.write(f"transformer.py -   Query shape: {q.shape}\n")
+            f.write(f"transformer.py -   Key shape: {k.shape}\n")
+            f.write(f"transformer.py -   Value shape: {v.shape}\n")
+            f.write(f"transformer.py -   Attention weights shape: {attn_weight.shape}\n")
+            f.write(f"transformer.py -   Output shape: {y.shape}\n\n")
+    
         # Map the output to the embedding dimension
         return self.projection(y), attn_weight

@@ -79,11 +79,18 @@ class AttentionQuantumLayer(nn.Module):
         # Query and key parameters (learnable quantum circuit parameters)
         self.query_angles = nn.Parameter(torch.zeros(1, 1, total_VQC_params))
         self.key_angles = nn.Parameter(torch.zeros(1, 1, total_VQC_params))
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - total_VQC_params: {total_VQC_params}\n")
+            f.write(f"quantum_layer.py - self.query_angles: {self.query_angles.shape}\n")
+            f.write(f"quantum_layer.py - self.key_angles: {self.key_angles.shape}\n")
+        
         # Classical components
         self.value = nn.Linear(embed_dim, embed_dim, bias=False)
         self.projection = nn.Linear(embed_dim, embed_dim)
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - self.value: {self.value}\n")
+            f.write(f"quantum_layer.py - self.projection: {self.projection}\n")
+            
     def forward(
         self, x: Tensor, angles: Tensor, _: Optional[Tensor] = None
     ) -> tuple[Tensor, Tensor]:
@@ -102,10 +109,13 @@ class AttentionQuantumLayer(nn.Module):
         """
 
         B, T, C = x.size()  # Batch size, sequence length, embedding dimension
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - batch_size: {B}, seq lengh: {T}, emb dim: {C}\n")
         # Apply linear transformation to obtain value embeddings
         v = self.value(x)
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - v.shape (x after value(x)): {v.shape}\n")
+        
         # Broadcast query and key angles across all tokens in the sequence and batch.
 
         # We do this because each token in a sequence and batch must be transformed by the same
@@ -123,6 +133,16 @@ class AttentionQuantumLayer(nn.Module):
         # Retrieve angles for token and position embeddings
         tok_angles, pos_angles = angles[:2]
 
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - broadcasted_query_angles: {broadcasted_query_angles.shape}\n")
+            f.write(f"quantum_layer.py - broadcasted_query_angles: {broadcasted_query_angles}\n")
+            f.write(f"quantum_layer.py - broadcasted_key_angles: {broadcasted_key_angles.shape}\n")
+            f.write(f"quantum_layer.py - broadcasted_key_angles: {broadcasted_key_angles}\n")
+            f.write(f"quantum_layer.py - tok_angles: {tok_angles.shape}\n")
+            f.write(f"quantum_layer.py - tok_angles: {tok_angles.shape}\n")
+            f.write(f"quantum_layer.py - pos_angles: {pos_angles.shape}\n")
+            f.write(f"quantum_layer.py - pos_angles: {pos_angles}\n")
+        
         # We prepare the inputs for the quantum circuit. Each CUDA-Q function call will run a batch of circuits where the input to each circuit is
         # a parameter matrix of shape (parameter_groups, angles).
         # See the utility function 'prepare_attention_inputs' for more details on how the inputs are prepared.
@@ -160,12 +180,21 @@ class AttentionQuantumLayer(nn.Module):
             )
             * scale_factor
         )
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - attn_weight: {attn_weight.shape}\n")
+            f.write(f"quantum_layer.py - attn_weight: {attn_weight}\n")
+               
         attn_weight = torch.softmax(attn_weight, dim=-1)
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - attn_weight after softmax: {attn_weight.shape}\n")
+            f.write(f"quantum_layer.py - attn_weight after softmax: {attn_weight}\n")
+            
         # Apply attention weights to the value vectors
         y = self.projection(torch.matmul(attn_weight, v))
-
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - y (projection(att_weight*v)): {y.shape}\n")
+            f.write(f"quantum_layer.py - y (projection(att_weight*v)): {y}\n")
+           
         return y, attn_weight
 
 
@@ -223,6 +252,11 @@ class AttentionQuantumFunction(Function):
                 parameters[:, 5, :],
             ),
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - token_1: {token_1}\n")
+            f.write(f"quantum_layer.py - position_1: {position_1}\n")
+            f.write(f"quantum_layer.py - token_2: {token_2}\n")
+            f.write(f"quantum_layer.py - position_2: {position_2}\n")
         (
             query_token_register,
             query_pos_register,
@@ -238,6 +272,16 @@ class AttentionQuantumFunction(Function):
             ),
         )
 
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - query_token_register: {query_token_register.shape}\n")
+            f.write(f"quantum_layer.py - query_token_register: {query_token_register}\n")
+            f.write(f"quantum_layer.py - query_pos_register: {query_pos_register.shape}\n")
+            f.write(f"quantum_layer.py - query_pos_register: {query_pos_register}\n")
+            f.write(f"quantum_layer.py - key_token_register: {key_token_register.shape}\n")
+            f.write(f"quantum_layer.py - key_token_register: {key_token_register}\n")
+            f.write(f"quantum_layer.py - key_pos_register: {key_pos_register.shape}\n")
+            f.write(f"quantum_layer.py - key_pos_register: {key_pos_register}\n")
+            
         if self.conditional_training:
             query_physchem_register, key_physchem_register = (
                 parameters[:, 8, :].cpu().numpy(),
@@ -268,6 +312,9 @@ class AttentionQuantumFunction(Function):
                 np.concatenate((key_token_register, key_pos_register), axis=1),
                 self.qpu_count,
             )
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"quantum_layer.py - query_angles: {query_angles}\n")
+                f.write(f"quantum_layer.py - key_angles: {key_angles}\n")
 
         # Since the number of ansatz layers and number of working qubits are arguments to the quantum circuit, we must broadcast them to all circuits
         ansatz_layers = np.array_split(
@@ -276,12 +323,17 @@ class AttentionQuantumFunction(Function):
             ),
             self.qpu_count,
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"quantum_layer.py - ansatz_layers: {ansatz_layers}\n")
+                
         num_working_qubits = np.array_split(
             np.expand_dims(
                 np.full((parameters.shape[0],), self.num_qubits, dtype=int), 1
             ),
             self.qpu_count,
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - num_working_qubits: {num_working_qubits}\n")
 
         asyncresults = []
         for i in range(self.qpu_count):
@@ -323,6 +375,8 @@ class AttentionQuantumFunction(Function):
         expectations = torch.tensor(
             [r.get().expectation() for r in asyncresults], device=device
         )
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - expectations: {expectations}\n")
         return expectations
 
     @staticmethod
@@ -346,6 +400,17 @@ class AttentionQuantumFunction(Function):
             upper_triangle_indices,
         ) = remove_redundant_circuits(parameters)
 
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - cleaned_circuit_parameters: {cleaned_circuit_parameters.shape}\n")
+            f.write(f"quantum_layer.py - cleaned_circuit_parameters: {cleaned_circuit_parameters}\n")
+            f.write(f"quantum_layer.py - unique_index_mapping: {unique_index_mapping.shape}\n")
+            f.write(f"quantum_layer.py - unique_index_mapping: {unique_index_mapping}\n")
+            f.write(f"quantum_layer.py - lower_triangle_indices: {lower_triangle_indices.shape}\n")
+            f.write(f"quantum_layer.py - lower_triangle_indices: {lower_triangle_indices}\n")
+            f.write(f"quantum_layer.py - upper_triangle_indices: {upper_triangle_indices.shape}\n")
+            f.write(f"quantum_layer.py - upper_triangle_indices: {upper_triangle_indices}\n")
+            
+        
         # Save for backward pass
         ctx.save_for_backward(
             cleaned_circuit_parameters,
@@ -353,15 +418,20 @@ class AttentionQuantumFunction(Function):
             lower_triangle_indices,
             upper_triangle_indices,
         )
+        
         ctx.shift, ctx.quantum_circuit, ctx.batch_size, ctx.block_size = (
             shift,
             quantum_circuit,
             batch_size,
             block_size,
         )
+        
         ctx.quantum_gradient_method, ctx.epsilon = quantum_gradient_method, epsilon
 
         expectations = quantum_circuit.run(cleaned_circuit_parameters)
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py - expectations after quantum_circuit.run(cleaned_circuit_parameters): {expectations}\n")
+            
         return repopulate_tensor(
             batch_size,
             block_size,
@@ -395,6 +465,11 @@ class AttentionQuantumFunction(Function):
         device = cleaned_circuit_parameters.device
         gradients = torch.zeros_like(cleaned_circuit_parameters)
 
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"quantum_layer.py -  gradients: {gradients.shape}\n")
+            f.write(f"quantum_layer.py - gradients: {gradients}\n")
+            
+            
         if quantum_gradient_method == "spsa":
             # Generate random perturbations (delta) for all parameters
             delta = (
@@ -404,13 +479,21 @@ class AttentionQuantumFunction(Function):
                 * 2
                 - 1
             ) * epsilon  # Random +/- epsilon
-
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"quantum_layer.py -  delta: {delta.shape}\n")
+                f.write(f"quantum_layer.py - delta: {delta}\n")
+            
             # Perturb parameters
             params_plus, params_minus = (
                 cleaned_circuit_parameters + delta,
                 cleaned_circuit_parameters - delta,
             )
-
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"quantum_layer.py -  params_plus: {params_plus.shape}\n")
+                f.write(f"quantum_layer.py - params_plus: {params_plus}\n")
+                f.write(f"quantum_layer.py -  params_minus: {params_minus.shape}\n")
+                f.write(f"quantum_layer.py - params_minus: {params_minus}\n")
+            
             # Compute expectation values at the perturbed points
             with torch.no_grad():
                 # Concatenate the + and - perturbations to run them all in parallel
@@ -420,6 +503,14 @@ class AttentionQuantumFunction(Function):
                 num_circuits = params_plus.size(0)
                 exp_plus = exp_concat[:num_circuits]
                 exp_minus = exp_concat[num_circuits:]
+                with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                    f.write(f"quantum_layer.py -  exp_concat: {exp_concat.shape}\n")
+                    f.write(f"quantum_layer.py - exp_concat: {exp_concat}\n")
+                    f.write(f"quantum_layer.py -  num_circuits: {num_circuits}\n")
+                    f.write(f"quantum_layer.py -  exp_plus: {exp_plus.shape}\n")
+                    f.write(f"quantum_layer.py - exp_plus: {exp_plus}\n")
+                    f.write(f"quantum_layer.py -  exp_minus: {exp_minus.shape}\n")
+                    f.write(f"quantum_layer.py - exp_minus: {exp_minus}\n")
 
             # Compute gradient per unique circuit
             exp_diff = (
@@ -428,7 +519,13 @@ class AttentionQuantumFunction(Function):
             spsa_gradient_unique = exp_diff.to(device) / (
                 2 * delta
             )  # Shape: (number_of_unique_circuits, param_group, param_per_group)
-
+            
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                    f.write(f"quantum_layer.py -  exp_diff: {exp_diff.shape}\n")
+                    f.write(f"quantum_layer.py - exp_diff: {exp_diff}\n")
+                    f.write(f"quantum_layer.py -  spsa_gradient_unique: {spsa_gradient_unique.shape}\n")
+                    f.write(f"quantum_layer.py - spsa_gradient_unique: {spsa_gradient_unique}\n")
+                    
             # Initialize a tensor to hold all gradients
             gradients_flat = torch.zeros(
                 (
@@ -438,11 +535,18 @@ class AttentionQuantumFunction(Function):
                 ),
                 device=device,
             )
-
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                    f.write(f"quantum_layer.py -  gradients_flat: {gradients_flat.shape}\n")
+                    f.write(f"quantum_layer.py - gradients_flat: {gradients_flat}\n")
+                    
             # Map gradients back to the full tensor
             gradients_flat[lower_triangle_indices] = spsa_gradient_unique[
                 unique_index_mapping
             ]
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"quantum_layer.py -  gradients_flat: {gradients_flat.shape}\n")
+                f.write(f"quantum_layer.py - gradients_flat: {gradients_flat}\n")
+                
 
             # Reshape the gradients tensor to match the expected dimensions
             gradients = gradients_flat.view(
@@ -450,6 +554,10 @@ class AttentionQuantumFunction(Function):
                 cleaned_circuit_parameters.shape[1],
                 cleaned_circuit_parameters.shape[2],
             )
+            with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"quantum_layer.py -  gradients: {gradients.shape}\n")
+                f.write(f"quantum_layer.py - gradients: {gradients}\n")
+                    
 
         elif quantum_gradient_method == "parameter-shift":
             # Parameter-shift implementation
@@ -523,5 +631,13 @@ class AttentionQuantumFunction(Function):
         final_gradients = (grad_output_expanded * gradients).view(
             batch_size, block_size, block_size, groups, param_count
         )
+        
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+                f.write(f"quantum_layer.py -  grad_output: {grad_output.shape}\n")
+                f.write(f"quantum_layer.py - grad_output: {grad_output}\n")
+                f.write(f"quantum_layer.py -  grad_output_expanded: {grad_output_expanded.shape}\n")
+                f.write(f"quantum_layer.py - grad_output_expanded: {grad_output_expanded}\n")
+                f.write(f"quantum_layer.py -  final_gradients: {final_gradients.shape}\n")
+                f.write(f"quantum_layer.py - final_gradients: {final_gradients}\n")
 
         return (final_gradients, None, None, None, None, None, None, None)
