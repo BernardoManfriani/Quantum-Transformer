@@ -1,5 +1,5 @@
 import torch
-from src.model import QuantumTransformerModel
+from src.quantum_transformer import QuantumTransformerModel
 from src.utils import generate_smiles
 
 # --- Parametri modello ---
