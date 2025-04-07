@@ -5,6 +5,9 @@ from rdkit import Chem
 from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors
 from torch import Tensor
 
+import torch
+import torch.nn.functional as F
+
 
 def get_physchem_properties(smiles: str) -> List[float]:
     """
@@ -265,3 +268,92 @@ def repopulate_tensor(
 
     # Reshape to the original (batch, seq_len, seq_len) format
     return reconstructed_tensor.view(batch_size, seq_len, seq_len)
+
+
+def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=None):
+    """
+    Genera una sequenza SMILES autoregressivamente partendo da un prompt.
+
+    Args:
+        model: Il modello QuantumTransformerModel addestrato.
+        prompt_smiles (str): La stringa SMILES iniziale (es. "CC").
+        max_len (int): La lunghezza massima della sequenza generata (inclusi [CLS] e prompt).
+        temperature (float): Fattore per riscalare i logits prima del softmax. Valori > 1 aumentano la casualità, < 1 la riducono.
+        top_k (int, optional): Se specificato, considera solo i top_k token più probabili per il campionamento.
+
+    Returns:
+        str: La stringa SMILES generata.
+    """
+    model.eval()
+    checkpoint = torch.load('/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/model_checkpoints/quantum_sequence/model_epoch_20.pt')
+    model.load_state_dict(checkpoint['model_state_dict'])
+    device = next(model.parameters()).device
+
+    vocab = ['#', '(', ')', '-', '1', '2', '3', '4', '5', '<pad>', '=', 'C', 'F', 'N', 'O', '[C-]', '[CH-]', '[CLS]', '[EOS]', '[N+]', '[N-]', '[NH+]', '[NH2+]', '[NH3+]', '[O-]', '[c-]', '[cH-]', '[n-]', '[nH+]', '[nH]', 'c', 'n', 'o']
+
+    stoi = {ch: i for i, ch in enumerate(vocab)}
+    itos = {i: ch for i, ch in enumerate(vocab)}
+    vocab_size = len(vocab)
+
+    # Indici speciali
+    cls_token = '[CLS]'
+    eos_token = '[EOS]'
+    pad_token = '<pad>'
+    cls_idx = stoi[cls_token]
+    eos_idx = stoi[eos_token]
+    pad_idx = stoi[pad_token]
+
+    # 1. Prepara il prompt iniziale
+    prompt_tokens = [cls_token] + tokenize_smiles(prompt_smiles, vocab)
+    idx = torch.tensor([stoi[token] for token in prompt_tokens], dtype=torch.long, device=device).unsqueeze(0) # Shape: (1, T_prompt)
+
+    # print(f"Prompt iniziale (indici): {idx}")
+    # print(f"Prompt iniziale (token): {[itos[i.item()] for i in idx[0]]}")
+
+
+    # 2. Loop di generazione
+    with torch.no_grad(): # Non serve calcolare gradienti
+        for _ in range(max_len - len(prompt_tokens)): # Genera fino a max_len token totali
+            # Se la sequenza corrente supera block_size, prendi solo gli ultimi block_size token
+            # Questo è cruciale perché il modello ha un embedding posizionale fisso
+            block_size = model.position_embed.size(1) # Ottieni block_size dal modello
+            idx_cond = idx if idx.size(1) <= block_size else idx[:, -block_size:]
+            print(f"Input al modello (step {_}, shape {idx_cond.shape}): {[itos[i.item()] for i in idx_cond[0]]}")
+
+
+            # 3. Ottieni i logits dal modello
+            logits, _ = model(idx_cond) # Shape logits: (1, T_current, vocab_size)
+
+            # 4. Concentrati sull'ultimo token predetto
+            logits = logits[:, -1, :] # Shape: (1, vocab_size)
+
+            # 5. Applica temperature scaling (opzionale, ma utile)
+            if temperature != 1.0:
+                logits = logits / temperature
+
+            # 6. Applica Top-k (opzionale)
+            if top_k is not None:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float('Inf') # Imposta a -infinito i logits non top-k
+
+            # 7. Calcola le probabilità
+            probs = F.softmax(logits, dim=-1) # Shape: (1, vocab_size)
+
+            # 8. Campiona il token successivo
+            idx_next = torch.multinomial(probs, num_samples=1) # Shape: (1, 1)
+
+            # 9. Aggiungi il token campionato alla sequenza
+            idx = torch.cat((idx, idx_next), dim=1) # Shape: (1, T_current + 1)
+
+            # 10. Controlla se è stato generato [EOS]
+            if idx_next.item() == eos_idx:
+                print("Generato token [EOS]. Interruzione.")
+                break
+            else:
+                print(f"Generato token {itos[idx_next.item()]}")
+
+
+    # 11. Decodifica la sequenza finale
+    generated_indices = idx[0].tolist()
+    generated_tokens = [itos[i] for i in generated_indices]
+    return "".join(generated_tokens) # O return generated_tokens se preferisci la lista
