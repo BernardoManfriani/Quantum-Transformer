@@ -1,6 +1,6 @@
 import torch
-from src.quantum_transformer import QuantumTransformerModel
 from src.utils import generate_smiles
+from src.quantum_transformer import QuantumTransformerModel
 
 # --- Parametri modello ---
 BATCH_SIZE = 4
