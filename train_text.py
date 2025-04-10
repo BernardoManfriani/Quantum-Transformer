@@ -79,7 +79,7 @@ def train_dante_transformer(
     print(f"I checkpoint saranno salvati in: {checkpoint_dir}")
     
     # Caricamento del dataset
-    train_dataset = Transformer_Dataset(data_path="./dataset/inferno.txt", block_size=block_size)
+    train_dataset = Transformer_Dataset(data_path="./dataset/inferno_small.txt", block_size=block_size)
     vocab_size = len(train_dataset.vocab)
     
     # Divisione training/validation (90%/10%)
