@@ -722,6 +722,246 @@ def generate_sample_text(model, dataset, device, max_tokens=50, temperature=1.0)
     return result
 
 
+def emergency_train_dante_transformer(
+    checkpoint_dir: str = "./dante_emergency_checkpoints",
+    data_path: str = "./dataset/inferno_small.txt",
+    epochs: int = 2,
+    batch_size: int = 512,  # Batch size molto grande per velocità massima
+    learning_rate: float = 1e-2,  # Learning rate aumentato per convergenza rapida
+    block_size: int = 32,    # Block size ridotto 
+    embed_dim: int = 16,     # Embedding minimo
+    device: str = "gpu",
+    seed: int = 42,
+):
+    """
+    Versione di emergenza ultra-veloce che forza l'uso di attenzione classica
+    e bypassa completamente CUDA Quantum per evitare problemi di memoria.
+    
+    Non usa mai quantum mode - questa è una soluzione di fallback quando
+    il quantum mode continua a causare errori di memoria.
+    """
+    start_time = time.time()
+    
+    # Setup riproducibilità
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
+    # Setup device
+    device_torch = torch.device(
+        "cuda:0" if (device == "gpu" and torch.cuda.is_available()) else "cpu"
+    )
+    print(f"Utilizzo device: {device_torch}")
+    
+    # Preparazione directory dei checkpoint
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    print(f"I checkpoint saranno salvati in: {checkpoint_dir}")
+    
+    # Caricamento del dataset
+    print(f"Caricamento dataset da {data_path}")
+    train_dataset = Transformer_Dataset(data_path=data_path, block_size=block_size)
+    vocab_size = len(train_dataset.vocab)
+    
+    # Divisione training/validation con set di validation ridotto
+    dataset_size = len(train_dataset)
+    val_size = min(int(dataset_size * 0.05), 100)  # Ulteriormente ridotto a max 100 esempi
+    train_size = dataset_size - val_size
+    train_data, val_data = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+    
+    # Inizializzazione dataloader con pin_memory=False per velocità
+    train_loader = StatefulDataLoader(
+        train_data,
+        shuffle=True,
+        batch_size=batch_size,
+        pin_memory=False,
+        num_workers=0,
+    )
+    
+    val_loader = StatefulDataLoader(
+        val_data,
+        shuffle=False,
+        batch_size=batch_size,
+        pin_memory=False,
+        num_workers=0,
+    )
+    
+    print(f"Dataset totale: {dataset_size} esempi")
+    print(f"Training set: {train_size} esempi")
+    print(f"Validation set: {val_size} esempi")
+    print(f"Dimensione vocabolario: {vocab_size} token")
+    
+    # Inizializzazione del modello - FORZA ATTENZIONE CLASSICA
+    classical_attention = True  # FORZATO TRUE
+    model = Transformer_Model(
+        qpu_count=1,  # Ignorato dato che classical_attention = True
+        vocab_size=vocab_size,
+        embed_dim=embed_dim,
+        block_size=block_size,
+        classical_attention=classical_attention,
+        num_qubits=2,  # Ignorato dato che classical_attention = True
+        ansatz_layers=1,
+        conditional_training=False,
+        classical_parameter_reduction=False,
+    ).to(device_torch)
+    
+    # Calcola e stampa il numero di parametri del modello
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Modello inizializzato con {num_params:,} parametri addestrabili")
+    print(f"Tipo attenzione: classica (FORZATA)")
+    print(f"Dimensione embedding: {embed_dim}")
+    print(f"Block size: {block_size}")
+    
+    # Inizializzazione ottimizzatore con gradient clipping
+    optimizer = AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        betas=(0.9, 0.99),
+        eps=1e-8,
+        weight_decay=0.0001,  # Ridotto weight decay 
+    )
+    
+    # Scheduler di learning rate
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
+    
+    # Liste per tracciare le loss
+    training_losses = []
+    val_losses = []
+    
+    # Loop di addestramento
+    print("\nINIZIO ADDESTRAMENTO DI EMERGENZA CON ATTENZIONE CLASSICA...")
+    for epoch in range(epochs):
+        epoch_start_time = time.time()
+        print(f"\nEpoch {epoch+1}/{epochs}")
+        
+        # Training phase
+        model.train()
+        total_train_loss = 0
+        num_batches = 0
+        
+        # Progress bar per il training
+        pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc="Training")
+        
+        for batch_idx, (x, y, _) in pbar:
+            # Sposta i dati sul device
+            x, y = x.to(device_torch), y.to(device_torch)
+            
+            # Azzera i gradienti
+            optimizer.zero_grad()
+            
+            # Forward pass
+            logits, _ = model(x)
+            
+            # Calcolo della loss (Cross Entropy)
+            B, T, C = logits.shape
+            logits_flat = logits.view(-1, C)
+            y_flat = y.view(-1)
+            
+            # Maschera per ignorare i padding (-1)
+            mask = y_flat != -1
+            if mask.sum() == 0:
+                continue  # Salta questo batch se non ci sono token validi
+            
+            # Token filtrati
+            filtered_logits = logits_flat[mask]
+            filtered_targets = y_flat[mask]
+            
+            # Calcolo della loss con i token filtrati
+            loss = F.cross_entropy(filtered_logits, filtered_targets)
+            
+            # Backward pass
+            loss.backward()
+            
+            # Gradient clipping per stabilità
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            # Aggiornamento parametri
+            optimizer.step()
+            
+            # Aggiornamento metriche
+            total_train_loss += loss.item()
+            num_batches += 1
+            
+            # Aggiornamento della progress bar
+            pbar.set_postfix(loss=loss.item())
+        
+        # Calcolo della loss media dell'epoca
+        avg_train_loss = total_train_loss / num_batches if num_batches > 0 else float('inf')
+        training_losses.append(avg_train_loss)
+        
+        print(f"Training Loss: {avg_train_loss:.6f}")
+        
+        # Validation phase - Solo su un numero ridotto di batch per velocità
+        model.eval()
+        total_val_loss = 0
+        num_val_batches = 0
+        max_val_batches = min(len(val_loader), 2)  # Limitato a 2 batch per velocità massima
+        
+        with torch.no_grad():
+            for i, (x, y, _) in enumerate(tqdm(val_loader, desc="Validation", total=max_val_batches)):
+                if i >= max_val_batches:
+                    break
+                    
+                x, y = x.to(device_torch), y.to(device_torch)
+                
+                # Forward pass
+                logits, _ = model(x)
+                
+                # Calcolo della loss come nel training
+                B, T, C = logits.shape
+                logits_flat = logits.view(-1, C)
+                y_flat = y.view(-1)
+                
+                mask = y_flat != -1
+                if mask.sum() == 0:
+                    continue
+                    
+                filtered_logits = logits_flat[mask]
+                filtered_targets = y_flat[mask]
+                
+                loss = F.cross_entropy(filtered_logits, filtered_targets)
+                
+                total_val_loss += loss.item()
+                num_val_batches += 1
+        
+        # Calcolo della loss media di validation
+        avg_val_loss = total_val_loss / num_val_batches if num_val_batches > 0 else float('inf')
+        val_losses.append(avg_val_loss)
+        
+        # Tempo impiegato per l'epoca
+        epoch_time = time.time() - epoch_start_time
+        print(f"Validation Loss: {avg_val_loss:.6f} - Epoch Time: {epoch_time:.2f}s")
+        
+        # Aggiornamento learning rate
+        scheduler.step()
+    
+    # Salva un checkpoint finale
+    final_checkpoint_path = os.path.join(checkpoint_dir, "model_final.pt")
+    save_checkpoint(
+        final_checkpoint_path,
+        model,
+        optimizer,
+        scheduler,
+        epochs-1,
+        training_losses,
+        val_losses,
+        {
+            "seed": seed,
+            "attn_type": "classical",  # Sempre classical in modalità emergenza
+            "classical_attention": True,
+            "data_path": data_path,
+            "embed_dim": embed_dim,
+        },
+    )
+    print(f"Checkpoint finale salvato: {final_checkpoint_path}")
+    
+    total_time = time.time() - start_time
+    print(f"\nAddestramento completato in {total_time:.2f} secondi!")
+    
+    # Generazione di un piccolo esempio di testo con il modello addestrato
+    generate_sample_text(model, train_dataset, device_torch, max_tokens=50)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Addestramento Transformer su Inferno di Dante")
     
