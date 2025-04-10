@@ -399,8 +399,8 @@ def train_dante_transformer_fast(
             # Attiva modalità ultra veloce se richiesta
             if quantum_mode == "ultra_fast":
                 # Configurazione semplificata per evitare errori di memoria
-                cudaq.set_target(target, option="sim")  # Usa simulatore semplice
-                print("Modalità quantum ultra-fast attivata (simulatore semplice)")
+                cudaq.set_target(target)  # Senza opzioni aggiuntive per ultra_fast
+                print("Modalità quantum ultra-fast attivata (configurazione base)")
             else:
                 cudaq.set_target(target, option="mqpu,fp32")
                 print("Modalità quantum standard attivata")
