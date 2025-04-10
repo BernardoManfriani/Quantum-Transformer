@@ -722,12 +722,17 @@ def generate_sample_text(model, dataset, device, max_tokens=50, temperature=1.0)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Addestramento Transformer su Inferno di Dante")
     
+    # Argomento per scegliere la modalità di addestramento
+    parser.add_argument("--fast-mode", action="store_true",
+                      help="Usa la modalità di addestramento veloce")
+    
+    # Parametri comuni
     parser.add_argument("--checkpoint-dir", type=str, default="./dante_checkpoints",
                         help="Directory dove salvare i checkpoint")
     parser.add_argument("--save-every", type=int, default=10,
                         help="Salva il modello ogni N batch")
     parser.add_argument("--attn-type", type=str, choices=["quantum", "classical"],
-                        default="quantum", help="Tipo di meccanismo di attenzione")
+                        default="classical", help="Tipo di meccanismo di attenzione")
     parser.add_argument("--epochs", type=int, default=20,
                         help="Numero di epoche di addestramento")
     parser.add_argument("--batch-size", type=int, default=32,
@@ -745,67 +750,44 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42,
                         help="Seed per la riproducibilità")
     
-    args = parser.parse_args()
-    
-    # Esegui l'addestramento con i parametri specificati
-    train_dante_transformer(
-        checkpoint_dir=args.checkpoint_dir,
-        save_every_n_batches=args.save_every,
-        attn_type=args.attn_type,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        block_size=args.block_size,
-        device=args.device,
-        qpu_count=args.qpu_count,
-        seed=args.seed,
-    )
-
-    parser = argparse.ArgumentParser(description="Addestramento veloce di Transformer su Inferno di Dante")
-    
+    # Parametri specifici per modalità veloce
     parser.add_argument("--data-path", type=str, default="./dataset/inferno_small.txt",
-                        help="Percorso del dataset")
-    parser.add_argument("--checkpoint-dir", type=str, default="./dante_fast_checkpoints",
-                        help="Directory dove salvare i checkpoint")
-    parser.add_argument("--save-every", type=int, default=10,
-                        help="Salva il modello ogni N batch (default=10)")
-    parser.add_argument("--attn-type", type=str, choices=["quantum", "classical"],
-                        default="classical", help="Tipo di meccanismo di attenzione")
-    parser.add_argument("--epochs", type=int, default=5,
-                        help="Numero di epoche di addestramento")
-    parser.add_argument("--batch-size", type=int, default=128,
-                        help="Dimensione del batch")
-    parser.add_argument("--learning-rate", type=float, default=1e-3,
-                        help="Learning rate iniziale")
-    parser.add_argument("--weight-decay", type=float, default=0.01,
-                        help="Weight decay per la regolarizzazione")
-    parser.add_argument("--block-size", type=int, default=64,
-                        help="Dimensione massima della sequenza")
-    parser.add_argument("--device", type=str, choices=["cpu", "gpu"],
-                        default="gpu", help="Device da utilizzare")
-    parser.add_argument("--qpu-count", type=int, default=1,
-                        help="Numero di GPU per la simulazione quantistica")
+                        help="Percorso del dataset (usato solo in modalità fast)")
     parser.add_argument("--quantum-mode", type=str, choices=["normal", "ultra_fast"],
                         default="ultra_fast", help="Modalità quantum (solo per attn-type=quantum)")
-    parser.add_argument("--seed", type=int, default=42,
-                        help="Seed per la riproducibilità")
     
     args = parser.parse_args()
     
-    # Esegui l'addestramento con i parametri specificati
-    train_dante_transformer_fast(
-        data_path=args.data_path,
-        checkpoint_dir=args.checkpoint_dir,
-        save_every_n_batches=args.save_every,
-        attn_type=args.attn_type,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        block_size=args.block_size,
-        device=args.device,
-        qpu_count=args.qpu_count,
-        quantum_mode=args.quantum_mode,
-        seed=args.seed,
-    )
+    if args.fast_mode:
+        print("Avvio addestramento in modalità veloce...")
+        # Se in modalità veloce, usa i valori predefiniti ottimizzati per quella funzione
+        train_dante_transformer_fast(
+            data_path=args.data_path,
+            checkpoint_dir=args.checkpoint_dir,
+            save_every_n_batches=args.save_every,
+            attn_type=args.attn_type,
+            epochs=args.epochs if args.epochs < 10 else 5,  # Limita a max 5 epoche in modalità veloce
+            batch_size=max(args.batch_size, 128),  # Usa almeno batch size 128 in modalità veloce
+            learning_rate=max(args.learning_rate, 1e-3),  # Aumenta il learning rate in modalità veloce
+            weight_decay=args.weight_decay,
+            block_size=min(args.block_size, 64),  # Riduce block size in modalità veloce
+            device=args.device,
+            qpu_count=args.qpu_count if args.attn_type == "classical" else 1,
+            quantum_mode=args.quantum_mode,
+            seed=args.seed,
+        )
+    else:
+        print("Avvio addestramento in modalità standard...")
+        train_dante_transformer(
+            checkpoint_dir=args.checkpoint_dir,
+            save_every_n_batches=args.save_every,
+            attn_type=args.attn_type,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
+            weight_decay=args.weight_decay,
+            block_size=args.block_size,
+            device=args.device,
+            qpu_count=args.qpu_count,
+            seed=args.seed,
+        )
