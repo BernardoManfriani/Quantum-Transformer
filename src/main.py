@@ -1,28 +1,26 @@
 import torch
-from src.utils import generate_smiles
+from src.utils import generate_text
 from src.quantum_transformer import QuantumTransformerModel
+from src.transformer import Transformer_Dataset
 
 # --- Parametri modello ---
 BATCH_SIZE = 4
-SEQ_LENGTH = 10       # Deve essere <= BLOCK_SIZE
-VOCAB_SIZE = 33       # Dimensione del vocabolario
+BLOCK_SIZE = 128       # Lunghezza massima della sequenza per il testo
 EMBED_DIM = 64        # Dimensione embedding classico (per V)
-BLOCK_SIZE = 24       # Lunghezza massima della sequenza
 NUM_QUBITS = 6        # Deve essere pari
 ANSATZ_LAYERS = 1
 QPU_COUNT = 1
 EPSILON = 0.01
 
-# --- Vocabolario (ordinato) ---
-VOCAB = [
-    '#', '(', ')', '-', '1', '2', '3', '4', '5', '<pad>', '=', 'C', 'F', 'N', 'O',
-    '[C-]', '[CH-]', '[CLS]', '[EOS]', '[N+]', '[N-]', '[NH+]', '[NH2+]', '[NH3+]',
-    '[O-]', '[c-]', '[cH-]', '[n-]', '[nH+]', '[nH]', 'c', 'n', 'o'
-]
-
 def main():
     # --- Setup device ---
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Utilizzo device: {device}")
+
+    # --- Carica il dataset e ottieni la dimensione del vocabolario ---
+    dataset = Transformer_Dataset(data_path="./dataset/inferno.txt", block_size=BLOCK_SIZE)
+    VOCAB_SIZE = len(dataset.vocab)
+    print(f"Dimensione del vocabolario: {VOCAB_SIZE}")
 
     # --- Inizializza modello ---
     model = QuantumTransformerModel(
@@ -38,14 +36,15 @@ def main():
     model.eval()
     model.to(device)
 
-    # --- Prompt e generazione SMILES ---
-    prompt = "C"
-    target_len = BLOCK_SIZE
+    # --- Prompt e generazione di testo ---
+    prompt = "Nel mezzo del cammin di nostra vita"
+    target_len = 200  # Lunghezza massima del testo generato
 
-    print("\n--- Generazione Molecola ---")
-    generated_smiles = generate_smiles(model, prompt, max_len=target_len, temperature=0.8, top_k=5)
+    print("\n--- Generazione Testo in Stile Inferno ---")
     print(f"Prompt: {prompt}")
-    print(f"Generato (max_len={target_len}): {generated_smiles}")
+    
+    generated_text = generate_text(model, prompt, max_len=target_len, temperature=0.8, top_k=5)
+    print(f"\nTesto generato:\n{prompt}{generated_text}")
 
 if __name__ == '__main__':
     main()

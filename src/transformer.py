@@ -21,142 +21,78 @@ class Transformer_Dataset(Dataset):
         block_size (int): The block size for padding the sequences. If set to None, the block size will be the maximum sequence length in the dataset.
 
     Attributes:
-        smiles (pd.Series): The SMILES strings in the dataset.
-        smiles_regex (re.Pattern): The regular expression for tokenizing SMILES strings.
+        text (str): The entire text in the dataset.
         vocab (list): The vocabulary for the dataset.
         stoi (dict): A mapping of characters to their corresponding indices in the vocabulary.
         itos (dict): A mapping of indices to their corresponding characters in the vocabulary.
         block_size (int): The block size for padding the sequences.
-
-    Methods:
-        __len__(): Returns the length of the dataset.
-        __getitem__(idx): Returns the item at the given index.
-        tokenize_smiles(smiles): Tokenizes any SMILES string.
-
     """
 
-    def __init__(self, data_path=None, block_size=22):
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write("Initializing Transformer_Dataset\n")
+    def __init__(self, data_path=None, block_size=None):
+        if data_path is None:
+            # Default to Inferno if no data path provided
+            data_path = "./dataset/inferno.txt"
+            
+        # Read the entire text
+        with open(data_path, 'r', encoding='utf-8') as f:
+            self.text = f.read()
+            
+        # Create a character-level vocabulary
+        chars = sorted(list(set(self.text)))
+        self.vocab = ["<pad>", "[CLS]", "[EOS]"] + chars
         
-        # Get the SMILES strings from the data file
-        data = pd.read_csv(data_path)
-        smiles_col = "smiles" if "smiles" in data.columns else "SMILES"
-
-        # Method to canonicalize the SMILES strings
-        def canonicalize(smiles):
-            mol = Chem.MolFromSmiles(smiles)
-            return Chem.MolToSmiles(mol) if mol else None
-
-        # Canonicalize the SMILES strings and remove any duplicates
-        data[smiles_col] = data[smiles_col].apply(canonicalize)
-        data = data.dropna(subset=[smiles_col]).drop_duplicates(subset=[smiles_col])
-        data = data.reset_index(drop=True)
-
-        self.smiles = data[smiles_col]
-
-        # Tokenize the SMILES strings using a regular expression
-        self.smiles_regex = re.compile(
-            "(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\\\|\/|:|~|@|\?|>|\*|\$|\%[0-9]{2}|[0-9]|<pad>|[CLS]|[EOS])"
-        )
-        special_tokens = {"<pad>", "[CLS]", "[EOS]"}
-
-        # Build the vocabulary
-        characters = {
-            ch
-            for smile in self.smiles
-            for ch in self.smiles_regex.findall(smile.strip())
-        }
-        self.vocab = sorted(list(special_tokens | characters))
-
-        # Create mappings for the vocabulary
+        # Create mappings from characters to indices and vice versa
         self.stoi = {ch: i for i, ch in enumerate(self.vocab)}
         self.itos = {i: ch for i, ch in enumerate(self.vocab)}
-
-        if block_size is None:
-            print(
-                "Warning: May need to adjust tokenization rules if using a dataset other than QM9."
-            )
-            max_seq_length = max(
-                len(self.smiles_regex.findall("[CLS]" + smile.strip() + "[EOS]"))
-                for smile in self.smiles
-            )
-            self.block_size = max_seq_length
-        else:
-            # Add 2 for [CLS] and [EOS]
-            self.block_size = 2 + block_size
         
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write(f"transformer.py - Dataset loaded with {len(self.smiles)} samples. Block size: {self.block_size}\n")
-
+        # Determine block size (maximum sequence length)
+        if block_size is None:
+            # If not specified, use a reasonable default for text
+            self.block_size = 128
+        else:
+            self.block_size = block_size
+            
+        # Pre-tokenize the entire text
+        self.tokenized_text = [self.stoi[c] for c in self.text]
 
     # Method to return the length of the dataset
     def __len__(self):
-        return len(self.smiles)
+        # Return the number of possible sequences
+        # We subtract block_size to ensure we can get a complete sequence
+        return len(self.tokenized_text) - self.block_size
 
     # Method to return the item at the given index
     def __getitem__(self, idx):
-
-        # Tokenize the SMILES string and pad it to the block size
-        smiles = "[CLS]" + self.smiles[idx].strip() + "[EOS]"
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write(f"transformer.py - self.smiles[idx].strip(): {self.smiles[idx].strip()}\n")
+        # Starting from idx, get a sequence of block_size characters
+        chunk = self.tokenized_text[idx:idx + self.block_size]
         
-        smiles_tokens = self.smiles_regex.findall(smiles)
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write(f"transformer.py - smiles_tokens: {smiles_tokens}\n")
-            
-        smiles += "<pad>" * (self.block_size - len(smiles_tokens))
-
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write(f"transformer.py - smiles after padding: {smiles}\n")
-            
-        input_sequence = [self.stoi[s] for s in self.smiles_regex.findall(smiles)[:-1]]
-        target_sequence = [self.stoi[s] for s in self.smiles_regex.findall(smiles)[1:]]
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write(f"transformer.py - self.smiles_regex.findall(smiles): {self.smiles_regex.findall(smiles)}\n")
-            f.write(f"transformer.py - self.smiles_regex.findall(smiles)[:-1]: {self.smiles_regex.findall(smiles)[:-1]}\n")
-            f.write(f"transformer.py - self.smiles_regex.findall(smiles)[1:]: {self.smiles_regex.findall(smiles)[1:]}\n")
-            f.write(f"transformer.py - input_sequence: {input_sequence}\n")
-            f.write(f"transformer.py - target_sequence: {target_sequence}\n")
-
-        physchem_properties = get_physchem_properties(self.smiles[idx].strip())
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write(f"transformer.py - physchem_properties: {physchem_properties}\n")
-
-        input_tensor = torch.tensor(input_sequence, dtype=torch.long)
-        target_tensor = torch.tensor(target_sequence, dtype=torch.long)
-        physchem_tensor = torch.tensor(physchem_properties, dtype=torch.float)
+        # Input sequence: add [CLS] token at the start
+        x = [self.stoi["[CLS]"]] + chunk[:-1]
         
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write(f"transformer.py - Sample {idx}: Input Shape: {input_tensor.shape}, Target Shape: {target_tensor.shape}, Physchem Shape: {physchem_tensor.shape}\n")
+        # Target sequence: predict the next character
+        y = chunk
         
-        return input_tensor, target_tensor, physchem_tensor
+        # Convert to tensors
+        x = torch.tensor(x, dtype=torch.long)
+        y = torch.tensor(y, dtype=torch.long)
+        
+        # For text generation, we don't need physical-chemical properties
+        # But we keep the structure for compatibility with the model
+        physchem_props = torch.zeros(9, dtype=torch.float32)
+        
+        return x, y, physchem_props
 
-    def tokenize_smiles(self, smiles):
+    def tokenize_text(self, text):
         """
-        Tokenize any SMILES string using the same logic as the dataset.
-        This if useful for getting at attention maps for any given SMILES string.
+        Tokenizes any text string.
 
         Args:
-            smiles (str): A valid SMILES string.
+            text (str): The text string to tokenize.
 
         Returns:
-            list of int: Tokenized SMILES indices.
+            list: The tokenized text as a list of indices.
         """
-        smiles = "[CLS]" + smiles.strip() + "[EOS]"
-        smiles_tokens = self.smiles_regex.findall(smiles)
-        smiles += "<pad>" * (self.block_size - len(smiles_tokens))
-        tokenized = [
-            self.stoi.get(s, self.stoi["<pad>"])
-            for s in self.smiles_regex.findall(smiles)[:-1]
-        ]
-        
-        print(f"Tokenized SMILES length: {len(tokenized)}")
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write(f"transformer.py - Tokenized SMILES length: {len(tokenized)}\n")
-    
-        return tokenized
+        return [self.stoi[c] for c in text if c in self.stoi]
 
 
 class Transformer_Model(nn.Module):

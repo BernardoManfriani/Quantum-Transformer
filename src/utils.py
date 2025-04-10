@@ -352,8 +352,91 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
             else:
                 print(f"Generato token {itos[idx_next.item()]}")
 
-
     # 11. Decodifica la sequenza finale
     generated_indices = idx[0].tolist()
     generated_tokens = [itos[i] for i in generated_indices]
     return "".join(generated_tokens) # O return generated_tokens se preferisci la lista
+
+
+def generate_text(model, prompt_text, max_len=128, temperature=1.0, top_k=None):
+    """
+    Genera testo in stile Inferno di Dante partendo da un prompt.
+
+    Args:
+        model: Il modello QuantumTransformerModel o Transformer_Model addestrato.
+        prompt_text (str): Il testo iniziale da cui partire per la generazione.
+        max_len (int): La lunghezza massima della sequenza generata.
+        temperature (float): Fattore per riscalare i logits prima del softmax. Valori > 1 aumentano la casualità, < 1 la riducono.
+        top_k (int, optional): Se specificato, considera solo i top_k token più probabili per il campionamento.
+
+    Returns:
+        str: Il testo generato.
+    """
+    model.eval()
+    device = next(model.parameters()).device
+
+    # Crea una lista dei caratteri unici nel dataset
+    # Carica il testo di Dante per ottenere il vocabolario
+    with open('./dataset/inferno.txt', 'r', encoding='utf-8') as f:
+        dante_text = f.read()
+    
+    # Crea il vocabolario (caratteri unici nel testo + token speciali)
+    chars = sorted(list(set(dante_text)))
+    vocab = ["<pad>", "[CLS]", "[EOS]"] + chars
+    
+    # Crea mappature da caratteri a indici e viceversa
+    stoi = {ch: i for i, ch in enumerate(vocab)}
+    itos = {i: ch for i, ch in enumerate(vocab)}
+    
+    # Indici speciali
+    cls_token = '[CLS]'
+    eos_token = '[EOS]'
+    cls_idx = stoi[cls_token]
+    eos_idx = stoi[eos_token]
+
+    # Tokenizza il prompt iniziale
+    prompt_tokens = [cls_token] + [c for c in prompt_text if c in stoi]
+    idx = torch.tensor([stoi[token] for token in prompt_tokens], dtype=torch.long, device=device).unsqueeze(0)
+
+    # Loop di generazione
+    with torch.no_grad():
+        for _ in range(max_len - len(prompt_tokens)):
+            # Controlla la dimensione della sequenza rispetto al block_size del modello
+            block_size = model.position_embed.size(1)
+            idx_cond = idx if idx.size(1) <= block_size else idx[:, -block_size:]
+            
+            # Ottieni i logits dal modello
+            # Per la compatibilità con il modello condizionale, passiamo anche i valori zero per le proprietà fisico-chimiche
+            physchem_props = torch.zeros(9, dtype=torch.float32, device=device).unsqueeze(0)
+            logits, _ = model(idx_cond, physchem_props)
+            
+            # Prendi l'ultimo token predetto
+            logits = logits[:, -1, :]
+            
+            # Applica temperature scaling
+            if temperature != 1.0:
+                logits = logits / temperature
+                
+            # Applica Top-k sampling
+            if top_k is not None:
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float('Inf')
+                
+            # Calcola le probabilità e campiona
+            probs = F.softmax(logits, dim=-1)
+            idx_next = torch.multinomial(probs, num_samples=1)
+            
+            # Aggiungi il token alla sequenza
+            idx = torch.cat((idx, idx_next), dim=1)
+            
+            # Se viene generato [EOS], interrompi
+            if idx_next.item() == eos_idx:
+                break
+                
+    # Decodifica la sequenza generata
+    generated_indices = idx[0].tolist()
+    # Rimuovi i token speciali e mantieni solo i caratteri
+    generated_text = ''.join([itos[i] for i in generated_indices 
+                              if itos[i] not in ['[CLS]', '[EOS]', '<pad>']])
+                              
+    return generated_text

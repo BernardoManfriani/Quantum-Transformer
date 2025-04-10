@@ -24,7 +24,7 @@ def train_models(model_type, mode):
         epochs=2,  # Modifica il numero di epoche
         batch_size=1024,  # Riduci il batch size per Colab
         sample_percentage = 0.1, # Riduce il sample da prendere -> quindi usa solo il 10% del dataset
-    )
+    )   
 
 
 def generate_figures():
