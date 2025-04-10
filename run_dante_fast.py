@@ -1,4 +1,4 @@
-  import torch
+import torch
 import os
 import argparse
 from train_text import train_dante_fast, generate_sample_text
