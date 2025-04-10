@@ -681,45 +681,84 @@ def train_dante_transformer_fast(
     generate_sample_text(model, train_dataset, device_torch, max_tokens=50)
 
 
-def generate_sample_text(model, dataset, device, max_tokens=50, temperature=1.0):
-    """Genera un esempio di testo usando il modello addestrato."""
+def generate_sample_text(model, dataset, device, max_tokens=50, temperature=1.0, top_k=None, prompt=None):
+    """
+    Generate sample text from the trained model.
+    
+    Args:
+        model: The trained Transformer model
+        dataset: The dataset containing vocabulary information
+        device: The device to run inference on
+        max_tokens: Maximum number of tokens to generate
+        temperature: Temperature for sampling (lower = more deterministic)
+        top_k: If set, limit sampling to top k most likely tokens
+        prompt: Optional starting prompt text, if None uses a default
+        
+    Returns:
+        str: The generated text
+    """
     model.eval()
     
-    # Inizializza con [CLS] token
-    context = torch.tensor([[dataset.stoi["[CLS]"]]], dtype=torch.long).to(device)
-    generated_text = ["[CLS]"]
+    # Get vocabulary mappings
+    stoi = dataset.stoi
+    itos = dataset.itos
     
-    print("\n--- Esempio di testo generato ---")
+    # Start with default or provided prompt
+    if prompt is None:
+        prompt = "Nel mezzo del"  # Default starting prompt
     
+    # Tokenize prompt
+    tokens = ["[CLS]"] + [c for c in prompt]
+    token_indices = [stoi.get(token, stoi["[CLS]"]) for token in tokens]
+    
+    # Convert to tensor
+    x = torch.tensor(token_indices, dtype=torch.long, device=device).unsqueeze(0)
+    
+    # Generate text
     with torch.no_grad():
         for _ in range(max_tokens):
-            # Predici il prossimo token
-            logits, _ = model(context)
-            logits = logits[:, -1, :] / temperature
-            probs = F.softmax(logits, dim=-1)
+            # Get model block size
+            block_size = model.position_embed.size(1)
             
-            # Campiona dalla distribuzione
+            # Trim to block size if needed
+            if x.size(1) > block_size:
+                x = x[:, -block_size:]
+                
+            # Forward pass
+            logits, _ = model(x)
+            
+            # Get logits for the next token
+            next_logits = logits[:, -1, :]
+            
+            # Apply temperature
+            if temperature != 1.0:
+                next_logits = next_logits / temperature
+                
+            # Apply top-k sampling if specified
+            if top_k is not None:
+                v, _ = torch.topk(next_logits, min(top_k, next_logits.size(-1)))
+                next_logits[next_logits < v[:, [-1]]] = -float('Inf')
+                
+            # Apply softmax to get probabilities
+            probs = F.softmax(next_logits, dim=-1)
+            
+            # Sample from the distribution
             next_token = torch.multinomial(probs, num_samples=1)
             
-            # Converti il token in carattere
-            next_char = dataset.itos[next_token.item()]
+            # Add to sequence
+            x = torch.cat((x, next_token), dim=1)
             
-            # Termina se [EOS] o <pad>
-            if next_char == "[EOS]" or next_char == "<pad>":
+            # Check for end of sequence
+            if next_token.item() == stoi.get("[EOS]", -1):
                 break
-                
-            # Aggiungi al testo generato
-            generated_text.append(next_char)
-            
-            # Aggiorna il contesto
-            context = torch.cat((context, next_token), dim=1)
     
-    # Converti in stringa e stampa
-    result = "".join(token for token in generated_text if token not in ["[CLS]", "[EOS]", "<pad>"])
-    print(result)
-    print("----------------------------")
+    # Convert back to text
+    tokens = [itos[i.item()] for i in x[0]]
     
-    return result
+    # Remove special tokens
+    generated_text = ''.join([t for t in tokens if t not in ["[CLS]", "[EOS]", "<pad>"]])
+    
+    return generated_text
 
 
 def emergency_train_dante_transformer(
@@ -962,6 +1001,257 @@ def emergency_train_dante_transformer(
     generate_sample_text(model, train_dataset, device_torch, max_tokens=50)
 
 
+def train_dante_fast(
+    data_path: str = "./dataset/inferno_small.txt",
+    checkpoint_dir: str = "./dante_fast_checkpoints",
+    epochs: int = 2,
+    batch_size: int = 64,
+    learning_rate: float = 5e-3,
+    embed_dim: int = 32,
+    block_size: int = 64,
+    device: str = "gpu",
+    seed: int = 42
+):
+    """
+    Fast training function for Dante's Inferno text generation.
+    Optimized for speed rather than quality.
+    
+    Args:
+        data_path: Path to the dataset file
+        checkpoint_dir: Directory to save checkpoints
+        epochs: Number of training epochs
+        batch_size: Batch size for training
+        learning_rate: Learning rate for optimizer
+        embed_dim: Embedding dimension
+        block_size: Maximum sequence length
+        device: Device to run on ('cpu' or 'gpu')
+        seed: Random seed for reproducibility
+    """
+    start_time = time.time()
+    print(f"Starting fast training on {data_path}...")
+    
+    # Set reproducibility
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
+    # Setup device
+    device_torch = torch.device(
+        "cuda:0" if (device == "gpu" and torch.cuda.is_available()) else "cpu"
+    )
+    print(f"Using device: {device_torch}")
+    
+    # Create checkpoint directory
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    print(f"Checkpoints will be saved to: {checkpoint_dir}")
+    
+    # Load dataset
+    print(f"Loading dataset from {data_path}")
+    train_dataset = Transformer_Dataset(data_path=data_path, block_size=block_size)
+    vocab_size = len(train_dataset.vocab)
+    
+    # Split into train/validation
+    dataset_size = len(train_dataset)
+    val_size = min(int(dataset_size * 0.05), 100)  # 5% for validation, max 100 examples
+    train_size = dataset_size - val_size
+    train_data, val_data = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+    
+    # Create data loaders
+    train_loader = StatefulDataLoader(
+        train_data,
+        shuffle=True,
+        batch_size=batch_size,
+        pin_memory=False,
+        num_workers=0,
+    )
+    
+    val_loader = StatefulDataLoader(
+        val_data,
+        shuffle=False,
+        batch_size=batch_size,
+        pin_memory=False,
+        num_workers=0,
+    )
+    
+    print(f"Total dataset: {dataset_size} examples")
+    print(f"Training set: {train_size} examples")
+    print(f"Validation set: {val_size} examples")
+    print(f"Vocabulary size: {vocab_size} tokens")
+    
+    # Initialize model - using classical attention for speed
+    model = Transformer_Model(
+        qpu_count=1,  # Not used with classical attention
+        vocab_size=vocab_size,
+        embed_dim=embed_dim,
+        block_size=block_size,
+        classical_attention=True,  # Always use classical attention for speed
+        num_qubits=2,  # Not used with classical attention
+        ansatz_layers=1,
+        conditional_training=False,  # No conditioning for text
+        classical_parameter_reduction=False,
+        epsilon=0.01,
+    ).to(device_torch)
+    
+    # Count and report parameters
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Model initialized with {num_params:,} trainable parameters")
+    print(f"Embedding dimension: {embed_dim}")
+    print(f"Block size: {block_size}")
+    
+    # Initialize optimizer
+    optimizer = AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        betas=(0.9, 0.95),  # Slightly higher beta2 for text
+        eps=1e-8,
+        weight_decay=0.01,
+    )
+    
+    # Learning rate scheduler
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
+    
+    # Track losses
+    training_losses = []
+    val_losses = []
+    
+    # Training loop
+    print("\nStarting training...")
+    for epoch in range(epochs):
+        epoch_start_time = time.time()
+        print(f"\nEpoch {epoch+1}/{epochs}")
+        
+        # Training phase
+        model.train()
+        total_train_loss = 0
+        num_batches = 0
+        
+        # Progress bar
+        pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc="Training")
+        for batch_idx, (x, y, _) in pbar:
+            # Move data to device
+            x, y = x.to(device_torch), y.to(device_torch)
+            
+            # Zero gradients
+            optimizer.zero_grad()
+            
+            # Forward pass
+            logits, _ = model(x)
+            
+            # Calculate loss
+            B, T, C = logits.shape
+            logits_flat = logits.view(-1, C)
+            y_flat = y.view(-1)
+            
+            # Mask out padding tokens
+            mask = y_flat != -1
+            if mask.sum() == 0:
+                continue  # Skip batch if no valid tokens
+            
+            filtered_logits = logits_flat[mask]
+            filtered_targets = y_flat[mask]
+            
+            # Calculate loss
+            loss = F.cross_entropy(filtered_logits, filtered_targets)
+            
+            # Backward pass
+            loss.backward()
+            
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            # Update parameters
+            optimizer.step()
+            
+            # Update metrics
+            total_train_loss += loss.item()
+            num_batches += 1
+            
+            # Update progress bar
+            pbar.set_postfix(loss=loss.item())
+        
+        # Calculate average training loss
+        avg_train_loss = total_train_loss / num_batches if num_batches > 0 else float('inf')
+        training_losses.append(avg_train_loss)
+        
+        print(f"Training Loss: {avg_train_loss:.6f}")
+        
+        # Validation phase - limited to save time
+        model.eval()
+        total_val_loss = 0
+        num_val_batches = 0
+        max_val_batches = min(len(val_loader), 5)  # Limit validation batches
+        
+        with torch.no_grad():
+            for i, (x, y, _) in enumerate(tqdm(val_loader, desc="Validation", total=max_val_batches)):
+                if i >= max_val_batches:
+                    break
+                
+                x, y = x.to(device_torch), y.to(device_torch)
+                
+                # Forward pass
+                logits, _ = model(x)
+                
+                # Calculate loss
+                B, T, C = logits.shape
+                logits_flat = logits.view(-1, C)
+                y_flat = y.view(-1)
+                
+                mask = y_flat != -1
+                if mask.sum() == 0:
+                    continue
+                
+                filtered_logits = logits_flat[mask]
+                filtered_targets = y_flat[mask]
+                
+                loss = F.cross_entropy(filtered_logits, filtered_targets)
+                
+                total_val_loss += loss.item()
+                num_val_batches += 1
+        
+        # Calculate average validation loss
+        avg_val_loss = total_val_loss / num_val_batches if num_val_batches > 0 else float('inf')
+        val_losses.append(avg_val_loss)
+        
+        # Print epoch stats
+        epoch_time = time.time() - epoch_start_time
+        print(f"Validation Loss: {avg_val_loss:.6f} - Epoch Time: {epoch_time:.2f}s")
+        
+        # Update learning rate
+        scheduler.step()
+    
+    # Save final checkpoint
+    final_checkpoint_path = os.path.join(checkpoint_dir, "model_final.pt")
+    save_checkpoint(
+        final_checkpoint_path,
+        model,
+        optimizer,
+        scheduler,
+        epochs-1,
+        training_losses,
+        val_losses,
+        {
+            "seed": seed,
+            "attn_type": "classical",
+            "classical_attention": True,
+            "data_path": data_path,
+            "embed_dim": embed_dim,
+            "block_size": block_size,
+        },
+    )
+    print(f"Final checkpoint saved: {final_checkpoint_path}")
+    
+    # Calculate total training time
+    total_time = time.time() - start_time
+    print(f"\nTraining completed in {total_time:.2f} seconds!")
+    
+    # Generate a sample text to show results
+    print("\n--- Generated Text Sample ---")
+    sample_text = generate_sample_text(model, train_dataset, device_torch, max_tokens=50, temperature=0.8)
+    print(sample_text)
+    return model, train_dataset
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Addestramento Transformer su Inferno di Dante")
     
@@ -1034,3 +1324,265 @@ if __name__ == "__main__":
             qpu_count=args.qpu_count,
             seed=args.seed,
         )
+
+def train_dante_fast(
+    data_path: str = "./dataset/inferno_small.txt",
+    checkpoint_dir: str = "./dante_fast_checkpoints",
+    epochs: int = 2,
+    batch_size: int = 64,
+    block_size: int = 64,
+    embed_dim: int = 32,
+    learning_rate: float = 5e-3,
+    seed: int = 42,
+    device: str = "gpu",
+    save_checkpoint: bool = True,
+    generate_sample: bool = True
+):
+    """
+    Train a model on Dante's Inferno text quickly (optimized for speed over quality).
+    
+    Args:
+        data_path: Path to the dataset file
+        checkpoint_dir: Directory to save checkpoints
+        epochs: Number of training epochs (default: 2 for speed)
+        batch_size: Batch size for training
+        block_size: Maximum sequence length
+        embed_dim: Embedding dimension
+        learning_rate: Learning rate
+        seed: Random seed for reproducibility
+        device: Device to train on ("cpu" or "gpu")
+        save_checkpoint: Whether to save checkpoints
+        generate_sample: Whether to generate a sample after training
+    """
+    import time
+    start_time = time.time()
+    
+    # Set random seed for reproducibility
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
+    # Setup device
+    device_torch = torch.device(
+        "cuda:0" if (device == "gpu" and torch.cuda.is_available()) else "cpu"
+    )
+    print(f"Using device: {device_torch}")
+    
+    # Prepare checkpoint directory
+    if save_checkpoint:
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        print(f"Checkpoints will be saved to: {checkpoint_dir}")
+    
+    # Load dataset
+    print(f"Loading dataset from {data_path}")
+    train_dataset = Transformer_Dataset(data_path=data_path, block_size=block_size)
+    vocab_size = len(train_dataset.vocab)
+    
+    # Split train/validation (95%/5%)
+    dataset_size = len(train_dataset)
+    val_size = min(int(dataset_size * 0.05), 100)  # Small validation set
+    train_size = dataset_size - val_size
+    train_data, val_data = torch.utils.data.random_split(
+        train_dataset, [train_size, val_size]
+    )
+    
+    # Create data loaders
+    train_loader = StatefulDataLoader(
+        train_data,
+        shuffle=True,
+        batch_size=batch_size,
+        pin_memory=False,
+        num_workers=0,
+    )
+    
+    val_loader = StatefulDataLoader(
+        val_data,
+        shuffle=False,
+        batch_size=batch_size,
+        pin_memory=False,
+        num_workers=0,
+    )
+    
+    print(f"Total dataset: {dataset_size} examples")
+    print(f"Training set: {train_size} examples")
+    print(f"Validation set: {val_size} examples")
+    print(f"Vocabulary size: {vocab_size} tokens")
+    
+    # Initialize the model
+    model = Transformer_Model(
+        qpu_count=1,  # Not using quantum features
+        vocab_size=vocab_size,
+        embed_dim=embed_dim,
+        block_size=block_size,
+        classical_attention=True,  # Use classical attention for speed
+        num_qubits=2,  # Minimal
+        ansatz_layers=1,
+        conditional_training=False,
+        classical_parameter_reduction=False,
+        epsilon=0.01,  
+    ).to(device_torch)
+    
+    # Count and print model parameters
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Model initialized with {num_params:,} trainable parameters")
+    print(f"Embedding dimension: {embed_dim}")
+    print(f"Block size: {block_size}")
+    
+    # Initialize optimizer
+    optimizer = AdamW(
+        model.parameters(),
+        lr=learning_rate,
+        betas=(0.9, 0.95),
+        weight_decay=0.01,
+    )
+    
+    # Initialize scheduler
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
+    
+    # Training loop
+    training_losses = []
+    val_losses = []
+    
+    print(f"\nStarting training for {epochs} epochs...")
+    for epoch in range(epochs):
+        epoch_start = time.time()
+        
+        # Training phase
+        model.train()
+        total_train_loss = 0
+        num_batches = 0
+        
+        # Progress bar for training
+        pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch {epoch+1}/{epochs}")
+        
+        for batch_idx, (x, y, _) in pbar:
+            x, y = x.to(device_torch), y.to(device_torch)
+            
+            # Zero gradients
+            optimizer.zero_grad()
+            
+            # Forward pass
+            logits, _ = model(x)
+            
+            # Calculate loss
+            B, T, C = logits.shape
+            logits_flat = logits.view(-1, C)
+            y_flat = y.view(-1)
+            
+            # Mask padding tokens
+            mask = y_flat != -1
+            if mask.sum() == 0:
+                continue
+            
+            # Filter tokens
+            filtered_logits = logits_flat[mask]
+            filtered_targets = y_flat[mask]
+            
+            # Compute loss
+            loss = F.cross_entropy(filtered_logits, filtered_targets)
+            
+            # Backward pass
+            loss.backward()
+            
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            # Update parameters
+            optimizer.step()
+            
+            # Update metrics
+            total_train_loss += loss.item()
+            num_batches += 1
+            
+            # Update progress bar
+            pbar.set_postfix(loss=loss.item())
+        
+        # Calculate average training loss
+        avg_train_loss = total_train_loss / num_batches if num_batches > 0 else float('inf')
+        training_losses.append(avg_train_loss)
+        
+        # Validation phase
+        model.eval()
+        total_val_loss = 0
+        num_val_batches = 0
+        
+        with torch.no_grad():
+            for x, y, _ in tqdm(val_loader, desc="Validation"):
+                x, y = x.to(device_torch), y.to(device_torch)
+                
+                # Forward pass
+                logits, _ = model(x)
+                
+                # Calculate loss
+                B, T, C = logits.shape
+                logits_flat = logits.view(-1, C)
+                y_flat = y.view(-1)
+                
+                # Mask padding tokens
+                mask = y_flat != -1
+                if mask.sum() == 0:
+                    continue
+                
+                # Filter tokens
+                filtered_logits = logits_flat[mask]
+                filtered_targets = y_flat[mask]
+                
+                # Compute loss
+                loss = F.cross_entropy(filtered_logits, filtered_targets)
+                
+                # Update metrics
+                total_val_loss += loss.item()
+                num_val_batches += 1
+        
+        # Calculate average validation loss
+        avg_val_loss = total_val_loss / num_val_batches if num_val_batches > 0 else float('inf')
+        val_losses.append(avg_val_loss)
+        
+        # Print epoch results
+        epoch_time = time.time() - epoch_start
+        print(f"Epoch {epoch+1}/{epochs} - "
+              f"Train Loss: {avg_train_loss:.6f}, "
+              f"Val Loss: {avg_val_loss:.6f}, "
+              f"Time: {epoch_time:.2f}s")
+              
+        # Update learning rate
+        scheduler.step()
+        
+        # Save checkpoint
+        if save_checkpoint:
+            checkpoint_path = os.path.join(checkpoint_dir, f"model_epoch_{epoch+1}.pt")
+            torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+                'training_losses': training_losses,
+                'val_losses': val_losses,
+                'config': {
+                    'seed': seed,
+                    'embed_dim': embed_dim,
+                    'block_size': block_size,
+                    'data_path': data_path,
+                }
+            }, checkpoint_path)
+            print(f"Checkpoint saved: {checkpoint_path}")
+    
+    # Final statistics
+    total_time = time.time() - start_time
+    print(f"\nTraining completed in {total_time:.2f} seconds")
+    
+    # Generate sample text
+    if generate_sample:
+        print("\nGenerating sample text...")
+        sample_text = generate_sample_text(
+            model, 
+            train_dataset, 
+            device_torch,
+            max_tokens=100,
+            temperature=0.8,
+            top_k=5
+        )
+        print(f"\nSample generated text:\n{sample_text}")
+    
+    return model, train_dataset
