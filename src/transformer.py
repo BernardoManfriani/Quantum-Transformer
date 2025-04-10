@@ -564,18 +564,21 @@ class Transformer_Block(nn.Module):
             f.write(f"transformer.py - MLP input: {embed_dim}, hidden: {4 * embed_dim}, output: {embed_dim}\n")
 
     def forward(self, x, angles, reduced_x):
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write(f"transformer.py - Forward pass - input x: {x.shape}, angles: {angles.shape}, reduced_x: {reduced_x.shape if reduced_x is not None else 'None'}\n")
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - Forward pass - input x: {x.shape}, angles: {angles.shape if angles is not None else 'None'}, reduced_x: {reduced_x.shape if reduced_x is not None else 'None'}\n")
 
         y, attn_weight = self.attention(self.layer_norm1(x), angles, reduced_x)
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
-            f.write(f"transformer.py - After attention - y: {len(y)}, attn_weight: {attn_weight.shape}\n")
-            f.write(f"transformer.py - After attention - y: {y}, attn_weight: {attn_weight}\n")
+        # Verifica che y sia un tensor e non una lista o altro tipo
+        if isinstance(y, list):
+            y = y[0]  # Prendi il primo elemento se è una lista
+            
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+            f.write(f"transformer.py - After attention - y shape: {y.shape if y is not None else 'None'}, attn_weight shape: {attn_weight.shape if attn_weight is not None else 'None'}\n")
 
         x = x + y
         x = x + self.mlp(self.layer_norm2(x))
         
-        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
+        with open("/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/debug.txt", "a") as f:
             f.write(f"transformer.py - Output x: {x.shape}\n")
         
         return x, attn_weight
