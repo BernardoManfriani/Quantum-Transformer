@@ -333,18 +333,19 @@ def save_checkpoint(
 
 def train_dante_transformer_fast(
     checkpoint_dir: str = "./dante_fast_checkpoints",
-    save_every_n_batches: int = 10,
-    attn_type: str = "classical",  # Default to "classical" for speed
-    epochs: int = 5,               # Reduced epochs
-    batch_size: int = 128,         # Increased batch size
-    learning_rate: float = 1e-3,   # Increased learning rate for faster convergence
-    weight_decay: float = 0.01,
-    block_size: int = 64,          # Reduced block size
-    data_path: str = "./dataset/inferno_small.txt",  # Use smaller dataset by default
+    save_every_n_batches: int = 50,  # Aumentato per ridurre il salvataggio
+    attn_type: str = "classical",
+    epochs: int = 2,                # Ridotto a 2 epoche come richiesto
+    batch_size: int = 256,          # Aumentato a 256 per velocità
+    learning_rate: float = 5e-3,    # Aumentato il learning rate per convergenza più rapida
+    weight_decay: float = 0.001,    # Ridotto weight decay
+    block_size: int = 32,           # Ridotto ulteriormente block size
+    data_path: str = "./dataset/inferno_small.txt",
     device: str = "gpu",
-    qpu_count: int = 1,            # Default to single QPU
+    qpu_count: int = 1,
     seed: int = 42,
     quantum_mode: str = "ultra_fast",
+    epsilon: float = 0.05,          # Aumentato epsilon per convergenza più veloce
 ):
     """
     Versione ultra-veloce dell'addestramento di un Transformer su dataset ridotto.
@@ -363,6 +364,7 @@ def train_dante_transformer_fast(
         qpu_count: Numero di QPU (per quantum mode).
         seed: Seed per la riproducibilità.
         quantum_mode: Modalità di simulazione quantistica.
+        epsilon: Parametro per la convergenza più veloce.
         
     Returns:
         None
@@ -397,8 +399,8 @@ def train_dante_transformer_fast(
             # Attiva modalità ultra veloce se richiesta
             if quantum_mode == "ultra_fast":
                 # Configurazione semplificata per evitare errori di memoria
-                cudaq.set_target(target)
-                print("Modalità quantum ultra-fast attivata (configurazione semplificata)")
+                cudaq.set_target(target, option="sim")  # Usa simulatore semplice
+                print("Modalità quantum ultra-fast attivata (simulatore semplice)")
             else:
                 cudaq.set_target(target, option="mqpu,fp32")
                 print("Modalità quantum standard attivata")
@@ -446,8 +448,8 @@ def train_dante_transformer_fast(
     print(f"Validation set: {val_size} esempi")
     print(f"Dimensione vocabolario: {vocab_size} token")
     
-    # Dimensione embedding ridotta per velocità
-    embed_dim = 32
+    # Dimensione embedding ridotta ulteriormente per velocità
+    embed_dim = 16
     
     # Inizializzazione del modello
     classical_attention = (attn_type == "classical")
@@ -461,6 +463,7 @@ def train_dante_transformer_fast(
         ansatz_layers=1,
         conditional_training=False,
         classical_parameter_reduction=False,
+        epsilon=epsilon,  # Passa epsilon al modello
     ).to(device_torch)
     
     # Calcola e stampa il numero di parametri del modello
@@ -577,11 +580,11 @@ def train_dante_transformer_fast(
         
         print(f"Training Loss: {avg_train_loss:.6f}")
         
-        # Validation phase - Solo su un numero ridotto di batch per velocità
+        # Validation phase - Estremamente limitata per velocità
         model.eval()
         total_val_loss = 0
         num_val_batches = 0
-        max_val_batches = min(len(val_loader), 5)  # Limita il numero di batch per validation
+        max_val_batches = min(len(val_loader), 3)  # Limitato a 3 batch per velocità massima
         
         with torch.no_grad():
             for i, (x, y, _) in enumerate(tqdm(val_loader, desc="Validation", total=max_val_batches)):
