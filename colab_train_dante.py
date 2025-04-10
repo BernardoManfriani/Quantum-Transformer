@@ -18,28 +18,30 @@ from src.transformer import Transformer_Dataset, Transformer_Model
 def train_dante_transformer_lite(
     data_path: str = "./dataset/inferno_small.txt",
     checkpoint_dir: str = "./colab_checkpoints",
-    save_every_n_batches: int = -1,  # -1 significa salva solo alla fine dell'epoca
-    attn_type: str = "quantum",  # "quantum" o "classical"
-    epochs: int = 5,  # Ridotto da 20 a 5
-    batch_size: int = 64,  # Aumentato per accelerare il training
-    learning_rate: float = 5e-4,  # Aumentato per convergenza più rapida
+    save_every_n_batches: int = 10,  # Cambiato da -1 a 10 per salvare più frequentemente
+    attn_type: str = "classical",  # Cambiato default a "classical" per maggiore velocità
+    epochs: int = 3,  # Ridotto a 3 epoche
+    batch_size: int = 128,  # Aumentato a 128 per velocizzare
+    learning_rate: float = 1e-3,  # Aumentato a 1e-3 per convergenza più rapida
     weight_decay: float = 0.01,
-    block_size: int = 64,  # Ridotto per sequenze più corte
-    embed_dim: int = 32,  # Ridotto da 64 a 32
+    block_size: int = 32,  # Ridotto a 32 (era 64)
+    embed_dim: int = 16,  # Ridotto a 16 (era 32)
     device: str = "gpu",
-    qpu_count: int = 1,  # Impostato a 1 per default, ottimizzato per Colab
+    qpu_count: int = 1,
     seed: int = 42,
+    quantum_mode: str = "ultra_fast",  # Nuova opzione per modalità veloce
 ):
     """
-    Versione ottimizzata per Colab dell'addestramento di un Transformer (quantistico o classico) 
+    Versione ultra-ottimizzata per Colab dell'addestramento di un Transformer 
     su un dataset ridotto dell'Inferno di Dante.
     
     Questa versione usa:
-    - Dataset ridotto
-    - Meno epoche
-    - Dimensione embedding ridotta
-    - Block size minore
-    - Batch size ottimizzato per Colab
+    - Dataset molto ridotto
+    - Embedding dimension minima
+    - Block size ridotta 
+    - Learning rate aumentato
+    - Salvataggio checkpoint frequente
+    - Opzione di modalità quantum ultra veloce
     """
     start_time = time.time()
     
@@ -68,7 +70,13 @@ def train_dante_transformer_lite(
                 if device == "gpu" and cudaq.has_target("nvidia") 
                 else "qpp-cpu"
             )
-            cudaq.set_target(target, option="mqpu,fp32")
+            # Attiva modalità ultra veloce se richiesta
+            if quantum_mode == "ultra_fast":
+                cudaq.set_target(target, option="mqpu,fp32,sim")  # Usa simulazione più veloce
+                print("Modalità quantum ultra-fast attivata")
+            else:
+                cudaq.set_target(target, option="mqpu,fp32")
+                
             effective_qpu_count = min(cudaq.get_target().num_qpus(), qpu_count) if qpu_count != -1 else 1
             print(f"Target quantistico: {target}, QPU count: {effective_qpu_count}")
         except ImportError:
@@ -84,18 +92,18 @@ def train_dante_transformer_lite(
     train_dataset = Transformer_Dataset(data_path=data_path, block_size=block_size)
     vocab_size = len(train_dataset.vocab)
     
-    # Divisione training/validation (90%/10%)
+    # Divisione training/validation (90%/10%) - Ridotta la dimensione di validation
     dataset_size = len(train_dataset)
-    val_size = min(int(dataset_size * 0.1), 500)  # Max 500 esempi per validation
+    val_size = min(int(dataset_size * 0.05), 200)  # Ridotto a 5% o max 200 esempi
     train_size = dataset_size - val_size
     train_data, val_data = torch.utils.data.random_split(train_dataset, [train_size, val_size])
     
-    # Inizializzazione dataloader
+    # Inizializzazione dataloader con pin_memory=False per velocità
     train_loader = StatefulDataLoader(
         train_data,
         shuffle=True,
         batch_size=batch_size,
-        pin_memory=True,
+        pin_memory=False,
         num_workers=0,
     )
     
@@ -103,7 +111,7 @@ def train_dante_transformer_lite(
         val_data,
         shuffle=False,
         batch_size=batch_size,
-        pin_memory=True,
+        pin_memory=False,
         num_workers=0,
     )
     
@@ -117,10 +125,10 @@ def train_dante_transformer_lite(
     model = Transformer_Model(
         qpu_count=effective_qpu_count,
         vocab_size=vocab_size,
-        embed_dim=embed_dim,  # Dimensione embedding ridotta
+        embed_dim=embed_dim,
         block_size=block_size,
         classical_attention=classical_attention,
-        num_qubits=4,  # Ridotto da 6 a 4
+        num_qubits=2,  # Ridotto a 2 (era 4)
         ansatz_layers=1,
         conditional_training=False,
         classical_parameter_reduction=False,
@@ -132,13 +140,13 @@ def train_dante_transformer_lite(
     print(f"Tipo attenzione: {'classica' if classical_attention else 'quantistica'}")
     print(f"Dimensione embedding: {embed_dim}")
     print(f"Block size: {block_size}")
-    print(f"Numero qubit: 4")
+    print(f"Numero qubit: 2")
     
     # Inizializzazione ottimizzatore con gradient clipping
     optimizer = AdamW(
         model.parameters(),
         lr=learning_rate,
-        betas=(0.9, 0.95),  # Beta2 ridotto per addestramento più rapido
+        betas=(0.9, 0.95),
         eps=1e-8,
         weight_decay=weight_decay,
     )
@@ -171,6 +179,7 @@ def train_dante_transformer_lite(
             optimizer.zero_grad()
             
             # Forward pass
+            print("Forward...", end="\r")  # Aggiunto indicatore per debug
             logits, _ = model(x)
             
             # Calcolo della loss (Cross Entropy)
@@ -224,13 +233,14 @@ def train_dante_transformer_lite(
                         "attn_type": attn_type,
                         "classical_attention": classical_attention,
                         "data_path": data_path,
-                        "num_qubits": 4,
+                        "num_qubits": 2,
                         "ansatz_layers": 1,
                         "conditional_training": False,
                         "classical_parameter_reduction": False,
                         "embed_dim": embed_dim,
                     },
                 )
+                print(f"Checkpoint salvato: {checkpoint_path}")
         
         # Calcolo della loss media dell'epoca
         avg_train_loss = total_train_loss / num_batches if num_batches > 0 else float('inf')
@@ -238,7 +248,7 @@ def train_dante_transformer_lite(
         
         print(f"Training Loss: {avg_train_loss:.6f}")
         
-        # Validation phase
+        # Validation phase - Solo alla fine di ogni epoca per risparmiare tempo
         model.eval()
         total_val_loss = 0
         num_val_batches = 0
@@ -293,21 +303,46 @@ def train_dante_transformer_lite(
                 "attn_type": attn_type,
                 "classical_attention": classical_attention,
                 "data_path": data_path,
-                "num_qubits": 4,
+                "num_qubits": 2,
                 "ansatz_layers": 1,
                 "conditional_training": False,
                 "classical_parameter_reduction": False,
                 "embed_dim": embed_dim,
             },
         )
+        print(f"Checkpoint di fine epoca {epoch+1} salvato!")
     
     total_time = time.time() - start_time
     print(f"\nAddestramento completato in {total_time:.2f} secondi!")
     best_epoch = val_losses.index(min(val_losses)) + 1
     print(f"Miglior modello: Epoch {best_epoch} (validation loss: {min(val_losses):.6f})")
 
+    # Salva un checkpoint finale
+    final_checkpoint_path = os.path.join(checkpoint_dir, "model_final.pt")
+    save_checkpoint(
+        final_checkpoint_path,
+        model,
+        optimizer,
+        scheduler,
+        epochs-1,
+        training_losses,
+        val_losses,
+        {
+            "seed": seed,
+            "attn_type": attn_type,
+            "classical_attention": classical_attention,
+            "data_path": data_path,
+            "num_qubits": 2,
+            "ansatz_layers": 1,
+            "conditional_training": False,
+            "classical_parameter_reduction": False,
+            "embed_dim": embed_dim,
+        },
+    )
+    print(f"Checkpoint finale salvato: {final_checkpoint_path}")
+
     # Generazione di un piccolo esempio di testo con il modello addestrato
-    generate_sample_text(model, train_dataset, device_torch, max_tokens=100)
+    generate_sample_text(model, train_dataset, device_torch, max_tokens=50) 
 
 def save_checkpoint(
     path: str,
@@ -320,21 +355,24 @@ def save_checkpoint(
     config_dict: Dict[str, Union[str, bool, int, float]],
 ):
     """Salva un checkpoint del modello."""
-    torch.save(
-        {
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "scheduler_state_dict": scheduler.state_dict(),
-            "training_losses": training_losses,
-            "val_losses": val_losses,
-            "training_configuration": config_dict,
-        },
-        path,
-    )
-    print(f"Checkpoint salvato: {path}")
+    try:
+        torch.save(
+            {
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "scheduler_state_dict": scheduler.state_dict(),
+                "training_losses": training_losses,
+                "val_losses": val_losses,
+                "training_configuration": config_dict,
+            },
+            path,
+        )
+        print(f"Checkpoint salvato: {path}")
+    except Exception as e:
+        print(f"Errore nel salvare il checkpoint: {e}")
 
-def generate_sample_text(model, dataset, device, max_tokens=100, temperature=1.0):
+def generate_sample_text(model, dataset, device, max_tokens=50, temperature=1.0):
     """Genera un esempio di testo usando il modello addestrato."""
     model.eval()
     
@@ -375,32 +413,34 @@ def generate_sample_text(model, dataset, device, max_tokens=100, temperature=1.0
     return result
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Training leggero su Inferno di Dante per Colab")
+    parser = argparse.ArgumentParser(description="Training ultraleggero su Inferno di Dante per Colab")
     
     parser.add_argument("--data-path", type=str, default="./dataset/inferno_small.txt",
                         help="Percorso del dataset ridotto")
     parser.add_argument("--checkpoint-dir", type=str, default="./colab_checkpoints",
                         help="Directory dove salvare i checkpoint")
-    parser.add_argument("--save-every", type=int, default=-1,
-                        help="Salva il modello ogni N batch (-1 = solo alla fine dell'epoca)")
+    parser.add_argument("--save-every", type=int, default=10,
+                        help="Salva il modello ogni N batch (default=10)")
     parser.add_argument("--attn-type", type=str, choices=["quantum", "classical"],
-                        default="quantum", help="Tipo di meccanismo di attenzione")
-    parser.add_argument("--epochs", type=int, default=5,
+                        default="classical", help="Tipo di meccanismo di attenzione")
+    parser.add_argument("--epochs", type=int, default=3,
                         help="Numero di epoche di addestramento")
-    parser.add_argument("--batch-size", type=int, default=64,
+    parser.add_argument("--batch-size", type=int, default=128,
                         help="Dimensione del batch")
-    parser.add_argument("--learning-rate", type=float, default=5e-4,
+    parser.add_argument("--learning-rate", type=float, default=1e-3,
                         help="Learning rate iniziale")
     parser.add_argument("--weight-decay", type=float, default=0.01,
                         help="Weight decay per la regolarizzazione")
-    parser.add_argument("--block-size", type=int, default=64,
+    parser.add_argument("--block-size", type=int, default=32,
                         help="Dimensione massima della sequenza")
-    parser.add_argument("--embed-dim", type=int, default=32,
+    parser.add_argument("--embed-dim", type=int, default=16,
                         help="Dimensione dell'embedding")
     parser.add_argument("--device", type=str, choices=["cpu", "gpu"],
                         default="gpu", help="Device da utilizzare")
     parser.add_argument("--qpu-count", type=int, default=1,
                         help="Numero di GPU per la simulazione quantistica")
+    parser.add_argument("--quantum-mode", type=str, choices=["normal", "ultra_fast"],
+                        default="ultra_fast", help="Modalità quantum (solo per attn-type=quantum)")
     parser.add_argument("--seed", type=int, default=42,
                         help="Seed per la riproducibilità")
     
@@ -420,5 +460,6 @@ if __name__ == "__main__":
         embed_dim=args.embed_dim,
         device=args.device,
         qpu_count=args.qpu_count,
+        quantum_mode=args.quantum_mode,
         seed=args.seed,
     )
