@@ -72,13 +72,15 @@ def train_dante_transformer_lite(
             )
             # Attiva modalità ultra veloce se richiesta
             if quantum_mode == "ultra_fast":
-                cudaq.set_target(target, option="mqpu,fp32")  # Usa simulazione più veloce
-                print("Modalità quantum ultra-fast attivata")
+                # Usa meno opzioni per evitare problemi di memoria
+                cudaq.set_target(target)
+                print("Modalità quantum ultra-fast attivata con configurazione semplificata")
             else:
                 cudaq.set_target(target, option="mqpu,fp32")
+                print("Modalità quantum standard attivata")
                 
-            effective_qpu_count = min(cudaq.get_target().num_qpus(), qpu_count) if qpu_count != -1 else 1
-            print(f"Target quantistico: {target}, QPU count: {effective_qpu_count}")
+            effective_qpu_count = 1  # Forza a 1 QPU per evitare errori di memoria
+            print(f"Target quantistico: {target}, QPU count forzato a: {effective_qpu_count}")
         except ImportError:
             print("Attenzione: cudaq non disponibile, si procede con backend CPU")
             effective_qpu_count = 1
