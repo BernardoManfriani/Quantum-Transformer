@@ -1085,7 +1085,7 @@ def train_dante_fast(
         vocab_size=vocab_size,
         embed_dim=embed_dim,
         block_size=block_size,
-        classical_attention=True,  # Always use classical attention for speed
+        classical_attention=False,  # Always use classical attention for speed
         num_qubits=2,  # Not used with classical attention
         ansatz_layers=1,
         conditional_training=False,  # No conditioning for text
