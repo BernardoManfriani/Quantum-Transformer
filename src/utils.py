@@ -8,6 +8,13 @@ from torch import Tensor
 import torch
 import torch.nn.functional as F
 
+def tokenize_smiles(smiles_string, vocab): 
+    sorted_vocab = sorted(vocab, key=len, reverse=True)
+    pattern = "(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\\\|\/|:|~|@|\?|>|\*|\$|\%[0-9]{2}|[0-9]|<pad>|[CLS]|[EOS])"
+    regex = re.compile(pattern)
+    tokens = regex.findall(smiles_string)
+    return tokens
+    
 def scale_to_range(
     tensor: torch.Tensor, min_val: float, max_val: float
 ) -> torch.Tensor:
@@ -222,7 +229,7 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
         str: La stringa SMILES generata.
     """
     model.eval()
-    checkpoint = torch.load('/content/drive/MyDrive/Università/QuantumML/Quantum-Transformer/model_checkpoints/quantum_sequence/model_epoch_20.pt')
+    checkpoint = torch.load('./model_checkpoints/model_epoch_20.pt')
     model.load_state_dict(checkpoint['model_state_dict'])
     device = next(model.parameters()).device
 
