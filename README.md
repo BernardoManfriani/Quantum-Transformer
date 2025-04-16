@@ -17,8 +17,6 @@ This project explores a hybrid quantum-classical architecture for sequence gener
   - [Dante Text Generation](#dante-text-generation)
   - [SMILES Generation](#smiles-generation)
 - [Usage Examples](#usage-examples)
-- [Tips & Troubleshooting](#tips--troubleshooting)
-- [References](#references)
 
 ---
 
