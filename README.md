@@ -1,6 +1,6 @@
 # Quantum-Transformer
 
-Quantum-Transformer è un progetto di ricerca per la generazione di testo e sequenze molecolari (SMILES) tramite un modello ispirato ai Transformer e arricchito da layer quantistici custom. Il sistema supporta sia la generazione di testo in stile dantesco (Inferno di Dante) sia la generazione di stringhe SMILES per la chimica computazionale.
+Questo progetto nasce per la generazione di testo e sequenze molecolari (SMILES) tramite un modello ispirato ai Transformer proposto da Smaldone et al. ["A Hybrid Transformer Architecture with a Quantized Self-Attention Mechanism Applied to Molecular Generatione"](https://arxiv.org/pdf/2502.19214) arricchito da layer quantistici custom. Il sistema supporta sia la generazione di testo in stile dantesco (Inferno di Dante) sia la generazione di stringhe SMILES per la chimica computazionale.
 
 ---
 
@@ -42,10 +42,17 @@ Quantum-Transformer è un progetto di ricerca per la generazione di testo e sequ
 Installa le dipendenze principali con:
 
 ```bash
-pip install torch tqdm numpy requests
-# Per SMILES:
-pip install rdkit
-# Per CUDA Quantum (segui le istruzioni ufficiali NVIDIA)
+!pip install cudaq
+!pip install rdkit==2024.9.4
+!pip install torch==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+!pip install torchvision
+!pip install torchaudio
+!pip install pandas==2.2.2
+!pip install torchdata==0.10.1
+!pip install tqdm==4.67.1
+!pip install scikit-learn==1.5.1
+!pip install seaborn==0.13.2
+!pip install gdown==5.2.0
 ```
 
 ---
