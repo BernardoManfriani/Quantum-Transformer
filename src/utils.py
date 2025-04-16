@@ -234,7 +234,7 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
         str: La stringa SMILES generata.
     """
     model.eval()
-    checkpoint = torch.load('./model_checkpoints/model_epoch_20.pt')
+    checkpoint = torch.load('./model_checkpoints/smile/model_epoch_20.pt')
     model.load_state_dict(checkpoint['model_state_dict'])
     device = next(model.parameters()).device
 
