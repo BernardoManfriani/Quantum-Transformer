@@ -308,7 +308,7 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
 
 def generate_text(model, prompt_tokens, max_len=100, temperature=1.0, top_k=None, block_size=None):
     
-    model.eval() # Assicura che il modello sia in modalità valutazione
+    model.eval()
     device = next(model.parameters()).device
     
     vocab = [
