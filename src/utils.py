@@ -234,7 +234,7 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
         str: La stringa SMILES generata.
     """
     model.eval()
-    checkpoint = torch.load('./model_checkpoints/model_epoch_20.pt')
+    checkpoint = torch.load('./model_checkpoints/smile/model_epoch_20.pt')
     model.load_state_dict(checkpoint['model_state_dict'])
     device = next(model.parameters()).device
 
@@ -306,74 +306,165 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
     generated_tokens = [itos[i] for i in generated_indices]
     return "".join(generated_tokens) # O return generated_tokens se preferisci la lista
 
-def generate_text(model, prompt_tokens, max_len=100, temperature=1.0, top_k=None, block_size=None):
+def generate_text(model, prompt_tokens, max_len=100, temperature=1.0, top_k=None, block_size=None, model_type="dante"):
+    """
+    Generate text using the quantum transformer model.
     
+    Args:
+        model: The QuantumTransformerModel instance
+        prompt_tokens: List of tokens to start generation (e.g. ['[CLS]', 'N', 'e', 'l'])
+        max_len: Maximum length of generated text
+        temperature: Temperature for sampling (lower = more deterministic)
+        top_k: If set, limits sampling to top k tokens
+        block_size: Context window size. If None, inferred from model
+        model_type: Type of model ('dante' or 'smile')
+        
+    Returns:
+        str: The generated text
+    """
+    model.eval() # Ensure model is in evaluation mode
+    
+    # Check if model needs to load weights
+    if hasattr(model, 'load_state_dict') and not hasattr(model, '_weights_loaded'):
+        try:
+            if model_type == "dante":
+                checkpoint_path = './model_checkpoints/dante/best_dante_model.pt'
+                checkpoint = torch.load(checkpoint_path, map_location=next(model.parameters()).device)
+                model.load_state_dict(checkpoint['model_state_dict'])
+                # Use vocabulary from checkpoint
+                vocab = checkpoint.get('vocab', VOCAB)
+            else:  # Default to SMILE
+                checkpoint_path = './model_checkpoints/smile/model_epoch_20.pt'
+                checkpoint = torch.load(checkpoint_path, map_location=next(model.parameters()).device)
+                model.load_state_dict(checkpoint['model_state_dict'])
+                # SMILES vocabulary
+                vocab = ['#', '(', ')', '-', '1', '2', '3', '4', '5', '<pad>', '=', 'C', 'F', 'N', 'O', 
+                        '[C-]', '[CH-]', '[CLS]', '[EOS]', '[N+]', '[N-]', '[NH+]', '[NH2+]', '[NH3+]', 
+                        '[O-]', '[c-]', '[cH-]', '[n-]', '[nH+]', '[nH]', 'c', 'n', 'o']
+                
+            model._weights_loaded = True
+            print(f"Model weights loaded from {checkpoint_path}")
+        except Exception as e:
+            print(f"Warning: Could not load model weights: {str(e)}")
+            # For Dante text, fallback to default vocabulary
+            if model_type == "dante":
+                vocab = [
+                    '<pad>', '[CLS]', '[EOS]',
+                    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+                    'à', 'è', 'é', 'ì', 'ò', 'ù',
+                    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+                    'À', 'È', 'É', 'Ì', 'Ò', 'Ù',
+                    ' ', ',', '.', ';', ':', '!', '?', '-', '\"', '\'', '(', ')'
+                ]
+            else:
+                # Default SMILES vocab
+                vocab = ['#', '(', ')', '-', '1', '2', '3', '4', '5', '<pad>', '=', 'C', 'F', 'N', 'O', 
+                        '[C-]', '[CH-]', '[CLS]', '[EOS]', '[N+]', '[N-]', '[NH+]', '[NH2+]', '[NH3+]', 
+                        '[O-]', '[c-]', '[cH-]', '[n-]', '[nH+]', '[nH]', 'c', 'n', 'o']
+    else:
+        # Use default vocabulary if checkpoint loading not possible
+        if model_type == "dante":
+            vocab = [
+                '<pad>', '[CLS]', '[EOS]',
+                'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+                'à', 'è', 'é', 'ì', 'ò', 'ù',
+                'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+                'À', 'È', 'É', 'Ì', 'Ò', 'Ù',
+                ' ', ',', '.', ';', ':', '!', '?', '-', '\"', '\'', '(', ')'
+            ]
+        else:
+            # Default SMILES vocab
+            vocab = ['#', '(', ')', '-', '1', '2', '3', '4', '5', '<pad>', '=', 'C', 'F', 'N', 'O', 
+                    '[C-]', '[CH-]', '[CLS]', '[EOS]', '[N+]', '[N-]', '[NH+]', '[NH2+]', '[NH3+]', 
+                    '[O-]', '[c-]', '[cH-]', '[n-]', '[nH+]', '[nH]', 'c', 'n', 'o']
+
     model.eval()
     device = next(model.parameters()).device
     
-    vocab = [
-        '<pad>', '[CLS]', '[EOS]',
-        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-        'à', 'è', 'é', 'ì', 'ò', 'ù',
-        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-        'À', 'È', 'É', 'Ì', 'Ò', 'Ù',
-        ' ', ',', '.', ';', ':', '!', '?', '-', '\"', '\'', '(', ')'
-    ]
-
     stoi = {ch: i for i, ch in enumerate(vocab)}
     itos = {i: ch for i, ch in enumerate(vocab)}
 
     cls_token = '[CLS]'
     eos_token = '[EOS]'
     pad_token = '<pad>'
-    cls_idx = stoi[cls_token]
-    eos_idx = stoi[eos_token]
-    pad_idx = stoi[pad_token]
+    cls_idx = stoi.get(cls_token, 1)  # Default to 1 if not found
+    eos_idx = stoi.get(eos_token, 2)  # Default to 2 if not found
+    pad_idx = stoi.get(pad_token, 0)  # Default to 0 if not found
     
-    idx = torch.tensor([stoi[token] for token in prompt_tokens], dtype=torch.long, device=device).unsqueeze(0) # Shape: (1, T_prompt)
-
+    # Prepare input sequence
+    if isinstance(prompt_tokens, str):
+        # If prompt is a string, convert to list of characters
+        prompt_tokens = [cls_token] + list(prompt_tokens)
+    
+    # Convert tokens to indices
+    try:
+        idx = torch.tensor([[stoi.get(token, pad_idx) for token in prompt_tokens]], dtype=torch.long, device=device)
+    except:
+        print(f"Warning: Could not convert all tokens. Using only recognized tokens.")
+        idx = torch.tensor([[stoi.get(token, pad_idx) for token in prompt_tokens if token in stoi]], 
+                           dtype=torch.long, device=device)
+    
+    # Determine block size
     if block_size is None:
         try:
-            block_size = model.position_embed.weight.size(0) # Spesso la dimensione del pos_embed indica la max_len
+            block_size = model.position_embed.size(1)  # Position embedding size indicates block_size
         except AttributeError:
-            print("Attenzione: Impossibile inferire block_size dal modello. La sequenza non verrà troncata.")
-            block_size = float('inf') # Non troncare se non si può inferire
+            try:
+                block_size = model.position_embed.weight.size(0)  # Alternative way to get block_size
+            except AttributeError:
+                print("Warning: Could not determine block_size from model. Using 128 as default.")
+                block_size = 128  # Default if can't be determined
         except Exception as e:
-             print(f"Attenzione: Errore nell'inferire block_size ({e}). La sequenza non verrà troncata.")
-             block_size = float('inf') # Non troncare
+            print(f"Warning: Error determining block_size ({e}). Using 128 as default.")
+            block_size = 128  # Default if can't be determined
 
-    with torch.no_grad(): # Non serve calcolare gradienti durante l'inferenza
-        for _ in range(max_len - len(prompt_tokens)): # Genera al massimo N nuovi token
+    with torch.no_grad():  # No gradients needed for generation
+        for _ in range(max_len - len(prompt_tokens)):  # Generate up to max_len tokens
+            # Ensure we only use the last block_size tokens as context
             idx_cond = idx if idx.size(1) <= block_size else idx[:, -block_size:]
 
+            # Forward pass through the model
             output = model(idx_cond)
             
+            # Handle both tuple outputs (logits, attention) and direct logits
             if isinstance(output, tuple):
-                 logits = output[0]
-            else: # Assume che l'output siano solo i logits
-                 logits = output
+                logits = output[0]
+            else:  # Assume output is logits directly
+                logits = output
+            
+            # Focus on the last token prediction
+            logits = logits[:, -1, :]  # Shape: (1, vocab_size)
 
-            logits = logits[:, -1, :] # Shape: (batch=1, vocab_size)
-
+            # Handle temperature (0 = greedy)
             if temperature == 0.0:
-                 idx_next = torch.argmax(logits, dim=-1, keepdim=True) # Shape: (1, 1)
+                idx_next = torch.argmax(logits, dim=-1, keepdim=True)  # Shape: (1, 1)
             else:
+                # Apply temperature scaling
                 logits = logits / temperature
-
+                
+                # Apply top-k sampling if specified
                 if top_k is not None and top_k > 0:
                     v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                    logits[logits < v[:, [-1]]] = -float('Inf')
-
-                probs = F.softmax(logits, dim=-1) # Shape: (1, vocab_size)
-
-                idx_next = torch.multinomial(probs, num_samples=1) # Shape: (1, 1)
-
-            idx = torch.cat((idx, idx_next), dim=1) # Shape: (1, T_current + 1)
-
+                    logits[logits < v[:, [-1]]] = -float('Inf')  # Mask logits below top-k
+                
+                # Get probabilities and sample
+                probs = F.softmax(logits, dim=-1)  # Shape: (1, vocab_size)
+                idx_next = torch.multinomial(probs, num_samples=1)  # Shape: (1, 1)
+            
+            # Add the new token to our sequence
+            idx = torch.cat((idx, idx_next), dim=1)  # Shape: (1, sequence_length + 1)
+            
+            # Stop if EOS token is generated
             if idx_next.item() == eos_idx:
                 break
-
+    
+    # Convert indices back to tokens and join
     generated_indices = idx[0].tolist()
-    generated_tokens = [itos[i] for i in generated_indices]
-
-    return "".join(generated_tokens)
+    generated_tokens = [itos.get(i, "") for i in generated_indices]
+    
+    if model_type == "dante":
+        # For Dante text, join all characters to make readable text
+        return "".join(generated_tokens)
+    else:
+        # For SMILES, join all tokens (no spaces)
+        return "".join(generated_tokens)

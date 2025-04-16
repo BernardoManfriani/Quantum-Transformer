@@ -1,107 +1,204 @@
-# A Hybrid Transformer Architecture with a Quantized Self-Attention Mechanism Applied to Molecular Generation.
+# Quantum-Transformer
 
-## Summary
-The success of the self-attention mechanism in classical machine learning models has inspired the development of quantum analogs aimed at reducing computational overhead. Self-attention integrates learnable query and key matrices to calculate attention scores between all pairs of tokens in a sequence that are then multiplied with a learnable value matrix to obtain the output self-attention matrix, enabling the model effectively capture long-range dependencies within the input sequence. Here, we propose a hybrid quantum-classical self-attention mechanism as part of a transformer decoder, the architecture underlying Large Language Models (LLMs). To demonstrate its utility in chemistry, we train this model on the QM9 dataset for conditional generation, providing SMILES strings as input, each labeled with a set of physicochemical properties that serve as conditions during inference. Our theoretical analysis shows that the time complexity of the query-key dot product is reduced from $\mathcal{O}(n^2 d)$ in a classical model to $\mathcal{O}(n^2\log d)$ in our quantum model, where $n$  and $d$ represent the sequence length and embedding dimension, respectively. We perform simulations using NVIDIA's CUDA-Q platform, which is designed for efficient GPU scalability. This work provides an avenue for quantum-enhanced Natural Language Processing (NLP).
+Quantum-Transformer è un progetto di ricerca per la generazione di testo e sequenze molecolari (SMILES) tramite un modello ispirato ai Transformer e arricchito da layer quantistici custom. Il sistema supporta sia la generazione di testo in stile dantesco (Inferno di Dante) sia la generazione di stringhe SMILES per la chimica computazionale.
 
-![alt text](abstract_figure.png)
+---
 
-The pre-print of this work can be found at [https://arxiv.org/abs/2502.19214](https://arxiv.org/abs/2502.19214). A tutorial can be found on NVIDIA's [CUDA-Q Applications page](https://nvidia.github.io/cuda-quantum/latest/applications/python/quantum_transformer.html).
-## Installation
+## Indice
+- [Caratteristiche](#caratteristiche)
+- [Requisiti](#requisiti)
+- [Struttura del progetto](#struttura-del-progetto)
+- [Dataset](#dataset)
+- [Addestramento del modello](#addestramento-del-modello)
+  - [Addestramento Dante](#addestramento-dante)
+  - [Addestramento rapido (debug/test)](#addestramento-rapido-debugtest)
+  - [Opzioni di addestramento personalizzate](#opzioni-di-addestramento-personalizzate)
+- [Generazione di testo e SMILES](#generazione-di-testo-e-smiles)
+  - [Generazione testo dantesco](#generazione-testo-dantesco)
+  - [Generazione SMILES](#generazione-smiles)
+- [Esempi di utilizzo](#esempi-di-utilizzo)
+- [Consigli e troubleshooting](#consigli-e-troubleshooting)
+- [Riferimenti](#riferimenti)
 
-To reproduce the results from this repository, you can set up your environment using **Conda** or **pip**.
+---
 
-First, clone the repository:
-```sh
-git clone https://github.com/anthonysmaldone/Quantum-Transformer.git
-cd Quantum-Transformer
-```
-### Using Conda (recommended for Perlmutter jobs):
-```sh
-conda env create -f cuda_quantum_transformer_env.yml
-conda activate cuda_quantum_transformer_env
-```
+## Caratteristiche
+- **Quantum Transformer**: architettura ibrida che integra layer quantistici custom in uno stack transformer.
+- **Doppia modalità**: generazione di testo (italiano, stile Dante) e generazione di stringhe SMILES.
+- **Addestramento custom**: training su dataset testuale (Inferno di Dante) o dataset molecolare.
+- **Checkpoints separati**: salvataggio e caricamento di modelli per task diversi.
+- **Configurazione flessibile**: parametri di training e generazione facilmente personalizzabili da CLI.
 
-### Using Pip
-```sh
-pip install cudaq==0.9.1 rdkit==2024.9.4 torch==2.5.1+cu121 torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu121 \
-    pandas==2.2.2 torchdata==0.10.1 tqdm==4.67.1 \
-    scikit-learn==1.5.1 seaborn==0.13.2 gdown==5.2.0
-```
-## Reproducing Results & Figures
+---
 
-This repository provides a script, `reproduce.py`, to facilitate the reproduction of key results from the paper, including model training, figure generation, and inference.
+## Requisiti
+- Python 3.8+
+- PyTorch
+- CUDA (opzionale, consigliato per training su GPU)
+- [cudaq](https://github.com/NVIDIA/cuda-quantum) (per layer quantistici)
+- tqdm, numpy, requests (per logging, dataset, download)
+- RDKit (solo per generazione SMILES)
 
-The trained checkpoint files for the best and last (20th) epoch for each models are located in `model_checkpoints/`. The figures and inference reproducability functions uses these models to recreate the data from the paper.
+Installa le dipendenze principali con:
 
-### **1. Generate Figures**
-To generate figures used in the paper, use the --figures flag.
-```sh
-python reproduce.py --figures
-```
-No additional options are required.
-
-
-### **2. Run Inference**
-To perform inference on a trained model, use the `--inference-results` flag along with the required `--model` and `--mode options`.
-```sh
-python reproduce.py --inference-results --model <MODEL_TYPE> --mode <MODE>
-```
-Model Options (--model)
-- quantum – Train the quantum model.
-- classical_eq – Train the classical equivalent model.
-- classical – Train the standard classical model.
-  
-Training Mode Options (--mode)
-- sequence – Train using sequence-only data.
-- conditions – Train using both sequence and condition data.
-
-Examples
-- Run inference on the pre-trained quantum model with SMILES data only:
-```sh
-python reproduce.py --inference-results --model classical --mode sequence
-```
-- Run inference on the pre-trained classical model with SMILES and physicochemical properties:
-```sh
-python reproduce.py --inference-results --model quantum --mode conditions
+```bash
+pip install torch tqdm numpy requests
+# Per SMILES:
+pip install rdkit
+# Per CUDA Quantum (segui le istruzioni ufficiali NVIDIA)
 ```
 
-### **3. Train Models**
-To re-train a model, use the `--train-models` flag along with the required `--model` and `--mode` options as explain above.
+---
 
-```sh
-python reproduce.py --train-models --model <MODEL_TYPE> --mode <MODE>
+## Struttura del progetto
+
+```
+Quantum-Transformer/
+│
+├── main.py                  # Entry point principale (training/generazione)
+├── run_dante.py             # Script comodo per training Dante
+├── reproduce.py             # (placeholder per riproducibilità)
+├── dataset/
+│   └── inferno.txt          # Testo dell'Inferno di Dante (già incluso)
+├── model_checkpoints/
+│   ├── dante/               # Checkpoint modelli Dante
+│   └── smile/               # Checkpoint modelli SMILES
+├── src/
+│   ├── dante_trainer.py     # Logica di training per Dante
+│   ├── quantum_layer.py     # Layer quantistici custom
+│   ├── quantum_transformer.py # Architettura modello
+│   ├── utils.py             # Utility (tokenizzazione, generazione, ecc.)
+│   └── unitary_library.py   # Kernel quantistici CUDAQ
+└── README.md                # Questo file
 ```
 
-#### **Note**: These models were trained on Perlmutter using 4 NVIDIA A100 GPUs, and exact numerical reproducability is not garunteed across hardware architectures. Thus, results may slightly differ when running inference and training reproducability functions. 
+---
 
+## Dataset
+- **Testo**: `dataset/inferno.txt` (già incluso, nessun download necessario)
+- **SMILES**: (non incluso, puoi integrare il tuo dataset)
 
-## Usage
-A notebook tutorial can be found here (coming soon) and documentation on available functions can be found in `docs/`.
+---
 
-If using Perlmutter or a SLURM-based cluster, the following example job script ensures the highest level of performance currently supported (1 node, 4 GPUs):
+## Addestramento del modello
 
-```sh
-#!/bin/bash
-#SBATCH -N 1                       # Use 1 node
-#SBATCH --ntasks-per-node=1        # Run a single task
-#SBATCH --gpus-per-task=4          # Use 4 GPUs for the task
-#SBATCH -t 48:00:00                # Max runtime
-#SBATCH -q regular                 # Queue
-#SBATCH -A replace_with_account    # Allocation account
-#SBATCH -C gpu                     # Use GPU nodes
+### Addestramento Dante
+Per addestrare il modello sul testo dell'Inferno di Dante:
 
-# Load Conda module
-module load conda
-
-# Activate your Conda environment
-conda activate cuda_quantum_transformer_env
-
-# Run the Python script
-python my_example_script.py
+```bash
+python main.py trainDante
 ```
 
-Save the above script and submit the job:
-```sh
-sbatch quantum_transformer_example_job.sh
+Oppure, usando lo script dedicato (identico):
+
+```bash
+python run_dante.py
 ```
+
+#### Opzioni principali:
+- `--epochs N`         Numero di epoche (default: 20)
+- `--batch_size N`     Batch size (default: 16)
+- `--block_size N`     Lunghezza sequenza (default: 128)
+- `--lr VAL`           Learning rate (default: 3e-4)
+- `--save_every N`     Salva checkpoint ogni N epoche (default: 5)
+- `--fast`             Modalità veloce (per test/debug)
+
+Esempio:
+
+```bash
+python main.py trainDante --epochs 50 --batch_size 32 --lr 5e-4
+```
+
+### Addestramento rapido (debug/test)
+Per un training veloce (utile per testare che tutto funzioni):
+
+```bash
+python main.py trainDante --fast
+```
+
+---
+
+## Generazione di testo e SMILES
+
+### Generazione testo dantesco
+Per generare testo in stile Dante dal modello addestrato:
+
+```bash
+python main.py generate --model dante --prompt "Nel mezzo del cammin"
+```
+
+Opzioni utili:
+- `--max_len N`        Lunghezza massima del testo generato (default: 100)
+- `--temperature VAL`  Temperature sampling (default: 0.8)
+- `--top_k N`          Top-k sampling (default: 5)
+
+Esempio avanzato:
+
+```bash
+python main.py generate --model dante --prompt "Nel mezzo del cammin" --max_len 200 --temperature 0.7 --top_k 40
+```
+
+### Generazione SMILES
+Per generare una stringa SMILES:
+
+```bash
+python main.py generate --model smile --prompt "C"
+```
+
+Anche qui puoi personalizzare:
+
+```bash
+python main.py generate --model smile --prompt "C" --max_len 50 --temperature 0.8 --top_k 5
+```
+
+---
+
+## Esempi di utilizzo
+
+### Dal codice Python
+
+```python
+from src.quantum_transformer import QuantumTransformerModel
+from src.utils import generate_text
+import torch
+
+model = QuantumTransformerModel(
+    qpu_count=1,
+    vocab_size=78,
+    embed_dim=64,
+    block_size=128,
+    num_qubits=6,
+    ansatz_layers=1
+)
+checkpoint = torch.load('./model_checkpoints/dante/best_dante_model.pt')
+model.load_state_dict(checkpoint['model_state_dict'])
+
+generated = generate_text(
+    model=model,
+    prompt_tokens=['[CLS]'] + list("Nel mezzo del cammin"),
+    max_len=100,
+    temperature=0.7,
+    top_k=40
+)
+print(generated)
+```
+
+---
+
+## Consigli e troubleshooting
+- **Errore shape gradienti**: Se durante l'addestramento ricevi errori su shape dei gradienti, assicurati che la funzione backward in `src/quantum_layer.py` restituisca gradienti con shape `[batch_size, block_size, block_size, groups, param_count]`.
+- **CUDA**: Se hai una GPU, assicurati che PyTorch la rilevi (`torch.cuda.is_available()`).
+- **Checkpoint**: I modelli addestrati vengono salvati in `model_checkpoints/dante/` e `model_checkpoints/smile/`.
+- **Dataset**: Per Dante, il file `inferno.txt` deve essere presente in `dataset/`. Per SMILES, integra il tuo dataset e la relativa logica di training.
+
+---
+
+## Riferimenti
+- [cuda-quantum (NVIDIA)](https://github.com/NVIDIA/cuda-quantum)
+- [PyTorch](https://pytorch.org/)
+- [RDKit](https://www.rdkit.org/)
+- Dante Alighieri, "La Divina Commedia" (Project Gutenberg)
+
+---
+
+Per domande, bug o suggerimenti, apri una issue su GitHub o contatta i maintainer del progetto.

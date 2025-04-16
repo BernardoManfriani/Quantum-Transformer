@@ -184,7 +184,7 @@ class AttentionQuantumFunction(Function):
 
             gradients_flat = torch.zeros((batch_size * block_size * block_size, groups, param_count), device=device)
             gradients_flat[lower_triangle_indices] = spsa_gradient_unique[unique_index_mapping]
-            gradients = gradients_flat.view(batch_size * block_size * block_size, groups, param_count)
+            gradients = gradients_flat.view(batch_size, block_size, block_size, groups, param_count)
 
         elif quantum_gradient_method == "parameter-shift":
             shift_right_tensors = []
@@ -210,6 +210,6 @@ class AttentionQuantumFunction(Function):
             gradients_unique = gradient_estimates.T.reshape(-1, groups, param_count)
             gradients_flat = torch.zeros((batch_size * block_size * block_size, groups, param_count), device=device)
             gradients_flat[lower_triangle_indices] = gradients_unique[unique_index_mapping]
-            gradients = gradients_flat.view(batch_size * block_size * block_size, groups, param_count)
+            gradients = gradients_flat.view(batch_size, block_size, block_size, groups, param_count)
 
         return gradients, None, None, None, None, None, None, None
