@@ -25,7 +25,6 @@ class AttentionQuantumLayer(nn.Module):
     This layer encodes quantum states representing token embeddings and calculates attention
     weights using quantum circuits.
 
-
     Args:
         embed_dim (int): Embedding dimension.
         qpu_count (int): Number of GPUs for quantum circuit simulations.
