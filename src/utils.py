@@ -377,7 +377,8 @@ def generate_text(model, prompt_tokens, max_len=100, temperature=1.0, top_k=None
             vocab = ['#', '(', ')', '-', '1', '2', '3', '4', '5', '<pad>', '=', 'C', 'F', 'N', 'O', 
                     '[C-]', '[CH-]', '[CLS]', '[EOS]', '[N+]', '[N-]', '[NH+]', '[NH2+]', '[NH3+]', 
                     '[O-]', '[c-]', '[cH-]', '[n-]', '[nH+]', '[nH]', 'c', 'n', 'o']
-    
+
+    model.eval()
     device = next(model.parameters()).device
     
     stoi = {ch: i for i, ch in enumerate(vocab)}
