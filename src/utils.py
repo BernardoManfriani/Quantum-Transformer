@@ -1,12 +1,18 @@
 from typing import List, Optional, Tuple
 
 import torch
+from rdkit import Chem
+from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors
 from torch import Tensor
 
 import torch
 import torch.nn.functional as F
 
 import re
+
+def tokenize_text(text: str) -> List[str]:
+    tokens = re.findall(r'\w+|[^\w\s]', text)
+    return tokens
 
 def tokenize_smiles(smiles_string, vocab): 
     sorted_vocab = sorted(vocab, key=len, reverse=True)
@@ -46,6 +52,7 @@ def prepare_attention_inputs(
     pos: Tensor,
     query_weights: Tensor,
     key_weights: Tensor,
+    physchem: Optional[Tensor] = None,
 ) -> Tensor:
 
     batch_size = tok.size(0)
@@ -212,7 +219,6 @@ def repopulate_tensor(
     # Reshape to the original (batch, seq_len, seq_len) format
     return reconstructed_tensor.view(batch_size, seq_len, seq_len)
 
-
 def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=None):
     """
     Genera una sequenza SMILES autoregressivamente partendo da un prompt.
@@ -299,3 +305,75 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
     generated_indices = idx[0].tolist()
     generated_tokens = [itos[i] for i in generated_indices]
     return "".join(generated_tokens) # O return generated_tokens se preferisci la lista
+
+def generate_text(model, prompt_tokens, max_len=100, temperature=1.0, top_k=None, block_size=None):
+    
+    model.eval() # Assicura che il modello sia in modalità valutazione
+    device = next(model.parameters()).device
+    
+    vocab = [
+        '<pad>', '[CLS]', '[EOS]',
+        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+        'à', 'è', 'é', 'ì', 'ò', 'ù',
+        'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+        'À', 'È', 'É', 'Ì', 'Ò', 'Ù',
+        ' ', ',', '.', ';', ':', '!', '?', '-', '\"', '\'', '(', ')'
+    ]
+
+    stoi = {ch: i for i, ch in enumerate(vocab)}
+    itos = {i: ch for i, ch in enumerate(vocab)}
+
+    cls_token = '[CLS]'
+    eos_token = '[EOS]'
+    pad_token = '<pad>'
+    cls_idx = stoi[cls_token]
+    eos_idx = stoi[eos_token]
+    pad_idx = stoi[pad_token]
+    
+    idx = torch.tensor([stoi[token] for token in prompt_tokens], dtype=torch.long, device=device).unsqueeze(0) # Shape: (1, T_prompt)
+
+    if block_size is None:
+        try:
+            block_size = model.position_embed.weight.size(0) # Spesso la dimensione del pos_embed indica la max_len
+        except AttributeError:
+            print("Attenzione: Impossibile inferire block_size dal modello. La sequenza non verrà troncata.")
+            block_size = float('inf') # Non troncare se non si può inferire
+        except Exception as e:
+             print(f"Attenzione: Errore nell'inferire block_size ({e}). La sequenza non verrà troncata.")
+             block_size = float('inf') # Non troncare
+
+    with torch.no_grad(): # Non serve calcolare gradienti durante l'inferenza
+        for _ in range(max_len - len(prompt_tokens)): # Genera al massimo N nuovi token
+            idx_cond = idx if idx.size(1) <= block_size else idx[:, -block_size:]
+
+            output = model(idx_cond)
+            
+            if isinstance(output, tuple):
+                 logits = output[0]
+            else: # Assume che l'output siano solo i logits
+                 logits = output
+
+            logits = logits[:, -1, :] # Shape: (batch=1, vocab_size)
+
+            if temperature == 0.0:
+                 idx_next = torch.argmax(logits, dim=-1, keepdim=True) # Shape: (1, 1)
+            else:
+                logits = logits / temperature
+
+                if top_k is not None and top_k > 0:
+                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float('Inf')
+
+                probs = F.softmax(logits, dim=-1) # Shape: (1, vocab_size)
+
+                idx_next = torch.multinomial(probs, num_samples=1) # Shape: (1, 1)
+
+            idx = torch.cat((idx, idx_next), dim=1) # Shape: (1, T_current + 1)
+
+            if idx_next.item() == eos_idx:
+                break
+
+    generated_indices = idx[0].tolist()
+    generated_tokens = [itos[i] for i in generated_indices]
+
+    return "".join(generated_tokens)
