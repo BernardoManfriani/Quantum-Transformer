@@ -159,25 +159,3 @@ generated = generate_text(
 )
 print(generated)
 ```
-
----
-
-## Tips & Troubleshooting
-- **Quantum Gradient Optimization**: Choose between Parameter-Shift and SPSA (recommended for speed).
-- **Ancilla Register**: Ensure correct ancilla initialization for Hadamard tests.
-- **SMILES Preprocessing**: Tokenization is regex-based with canonicalization via RDKit.
-- **Character-Level Tokenizer**: Used for Dante generation; SMILES uses chemistry-specific tokens.
-- **Multi-QPU Support**: Enabled via `cudaq.observe_async`, efficient for large attention matrices.
-
----
-
-## References
-- [Smaldone et al. (2025)](https://arxiv.org/pdf/2502.19214)
-- [cuda-quantum (NVIDIA)](https://github.com/NVIDIA/cuda-quantum)
-- [PyTorch](https://pytorch.org/)
-- [RDKit](https://www.rdkit.org/)
-- Dante Alighieri, "La Divina Commedia" (Project Gutenberg)
-
----
-
-For questions, bugs, or contributions, please open a GitHub issue or contact the maintainers.
