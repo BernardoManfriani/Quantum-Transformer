@@ -8,6 +8,8 @@ from torch import Tensor
 import torch
 import torch.nn.functional as F
 
+import re
+
 def tokenize_smiles(smiles_string, vocab): 
     sorted_vocab = sorted(vocab, key=len, reverse=True)
     pattern = "(\[[^\]]+]|Br?|Cl?|N|O|S|P|F|I|b|c|n|o|s|p|\(|\)|\.|=|#|-|\+|\\\\|\/|:|~|@|\?|>|\*|\$|\%[0-9]{2}|[0-9]|<pad>|[CLS]|[EOS])"
