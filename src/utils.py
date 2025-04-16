@@ -8,35 +8,6 @@ from torch import Tensor
 import torch
 import torch.nn.functional as F
 
-
-def get_physchem_properties(smiles: str) -> List[float]:
-    """
-    Calculates physicochemical properties for a given molecule.
-
-    Parameters:
-    - smiles (str): The SMILES representation of the molecule.
-
-    Returns:
-    - List[float]: A list of calculated physicochemical properties for the molecule.
-    """
-
-    mol = Chem.MolFromSmiles(smiles)
-
-    properties = [
-        ("MW", Descriptors.MolWt(mol)),  # type: ignore
-        ("HBA", rdMolDescriptors.CalcNumHBA(mol)),
-        ("HBD", rdMolDescriptors.CalcNumHBD(mol)),
-        ("nRot", Descriptors.NumRotatableBonds(mol)),  # type: ignore
-        ("nRing", rdMolDescriptors.CalcNumRings(mol)),
-        ("nHet", rdMolDescriptors.CalcNumHeteroatoms(mol)),
-        ("TPSA", Descriptors.TPSA(mol)),  # type: ignore
-        ("LogP", Crippen.MolLogP(mol)),  # type: ignore
-        ("StereoCenters", len(Chem.FindMolChiralCenters(mol, includeUnassigned=True))),
-    ]
-
-    return [value for _, value in properties]
-
-
 def scale_to_range(
     tensor: torch.Tensor, min_val: float, max_val: float
 ) -> torch.Tensor:
@@ -70,89 +41,55 @@ def prepare_attention_inputs(
     key_weights: Tensor,
     physchem: Optional[Tensor] = None,
 ) -> Tensor:
-    """
-    Prepares attention inputs for batch processing with quantum circuits.
 
-    This function organizes token, position, and key/query tensors of angles into pairwise combinations
-    suitable for CUDA-Q functions. It structures input data into (batch, seq_len, seq_len, groups, param_count)
-    format for efficient batched execution.
-
-
-    Args:
-        tok (torch.Tensor): Token embeddings (batch, seq_len, ansatz_layers * num_tok_qubits).
-        pos (torch.Tensor): Position embeddings (batch, seq_len, ansatz_layers * num_pos_qubits).
-        query_weights (torch.Tensor): Query weight tensor (batch, seq_len, ansatz_layers * total_working_qubits).
-        key_weights (torch.Tensor): Key weight tensor (batch, seq_len, ansatz_layers * total_working_qubits).
-        physchem (torch.Tensor, optional): Physicochemical embeddings (batch, seq_len, ansatz_layers * num_physchem_qubits), if used.
-
-    Returns:
-        torch.Tensor: A tensor of shape (batch, seq_len, seq_len, groups, param_count)
-
-                      Notes:
-                        - The final two dimensions are tensors [tok1, pos1, query_weights1, tok2, pos2, key_weights2]
-                            or [tok1, pos1, query_weights1, tok2, pos2, key_weights2, physchem]
-                            for all pairwise combinations
-
-                        - Here, a "group" is a set of parameters that act on the same register (tok, pos, or physchem).
-
-                        - Parameters are grouped by register (which are all of equal size in this work since tok_size == pos_size)
-                          rather than by unitary, as grouping by unitaries
-                          (which do not have the same number of parameters, i.e. token and position registers are 3 qubits while query and key states are all 6 working qubits)
-                          would make it difficult to batch the tensors. It is more difficult work with ragged-arrayed tensors for other operations we used.
-
-                        - These tensors we will eventually need to be flattened from shape (batch, n, n, groups, param_count) to
-                          (batch*n*n, groups, param_count) to feed into the custom CUDA-Q functions.
-
-
-    """
-
-    # Get the sequence length dynamically
+    batch_size = tok.size(0)
     seq_len = tok.size(1)
+    tok_unsqueezed_i = tok.unsqueeze(2)
+    tok_i = tok_unsqueezed_i.expand(-1, -1, seq_len, -1)
 
-    # Expand token and position embeddings for pairwise interactions
-    tok_i, tok_j = tok.unsqueeze(2).expand(-1, -1, seq_len, -1), tok.unsqueeze(
-        1
-    ).expand(-1, seq_len, -1, -1)
-    pos_i, pos_j = pos.unsqueeze(2).expand(-1, -1, seq_len, -1), pos.unsqueeze(
-        1
-    ).expand(-1, seq_len, -1, -1)
+    tok_unsqueezed_j = tok.unsqueeze(1)
+    tok_j = tok_unsqueezed_j.expand(-1, seq_len, -1, -1)
 
-    # As discussed in the docstring, we break the parameters for the query/key PQCs
-    # into groups that act on the token register and ones that act on position register
-    # (and possibly the physchem register)
-    num_groups = 3 if physchem is not None else 2
+    pos_unsqueezed_i = pos.unsqueeze(2)
+    pos_i = pos_unsqueezed_i.expand(-1, -1, seq_len, -1)
+
+    pos_unsqueezed_j = pos.unsqueeze(1)
+    pos_j = pos_unsqueezed_j.expand(-1, seq_len, -1, -1)
+
+    num_groups = 2
     query_splits = torch.chunk(query_weights, num_groups, dim=2)
     key_splits = torch.chunk(key_weights, num_groups, dim=2)
+    query_token_i_chunk, query_pos_i_chunk = query_splits[:2]
+    key_token_j_chunk, key_pos_j_chunk = key_splits[:2]
 
-    query_token_i, query_pos_i = query_splits[:2]
-    key_token_j, key_pos_j = key_splits[:2]
+    # Espandi query_splits per la dimensione 'j' (indice 2)
+    query_token_i = query_token_i_chunk.unsqueeze(2).expand(-1, -1, seq_len, -1)
+    query_pos_i = query_pos_i_chunk.unsqueeze(2).expand(-1, -1, seq_len, -1)
 
-    query_token_i = query_token_i.unsqueeze(2).expand(-1, -1, seq_len, -1)
-    query_pos_i = query_pos_i.unsqueeze(2).expand(-1, -1, seq_len, -1)
-    key_token_j = key_token_j.unsqueeze(1).expand(-1, seq_len, -1, -1)
-    key_pos_j = key_pos_j.unsqueeze(1).expand(-1, seq_len, -1, -1)
+    # Espandi key_splits per la dimensione 'i' (indice 1)
+    key_token_j = key_token_j_chunk.unsqueeze(1).expand(-1, seq_len, -1, -1)
+    key_pos_j = key_pos_j_chunk.unsqueeze(1).expand(-1, seq_len, -1, -1)
 
-    # Stack the base tensor groups
+    # --- Creazione Lista Tensori Base per lo Stack ---
     input_tensors = [
-        tok_i,
-        pos_i,
-        query_token_i,
-        query_pos_i,
-        tok_j,
-        pos_j,
-        key_token_j,
-        key_pos_j,
+        tok_i,         # (B, T, T, P_tok)
+        pos_i,         # (B, T, T, P_pos)
+        query_token_i, # (B, T, T, P_qw_tok)
+        query_pos_i,   # (B, T, T, P_qw_pos)
+        tok_j,         # (B, T, T, P_tok)
+        pos_j,         # (B, T, T, P_pos)
+        key_token_j,   # (B, T, T, P_kw_tok)
+        key_pos_j,     # (B, T, T, P_kw_pos)
     ]
 
-    if physchem is not None:
-        query_physchem_i, key_physchem_j = query_splits[2], key_splits[2]
-        query_physchem_i = query_physchem_i.unsqueeze(2).expand(-1, -1, seq_len, -1)
-        key_physchem_j = key_physchem_j.unsqueeze(1).expand(-1, seq_len, -1, -1)
-        physchem_expanded = physchem.unsqueeze(2).expand(-1, -1, seq_len, -1)
+    param_dim = input_tensors[0].shape[-1] 
+    stacking_dim = 3 # La dimensione dove verranno impilati i diversi tipi di tensore (gruppi)
+    num_tensors_to_stack = len(input_tensors)
+    expected_shape = (batch_size, seq_len, seq_len, num_tensors_to_stack, param_dim)
 
-        input_tensors.extend([query_physchem_i, key_physchem_j, physchem_expanded])
-
-    return torch.stack(input_tensors, dim=3)
+    final_stacked_tensor = torch.stack(input_tensors, dim=stacking_dim)
+    actual_shape = final_stacked_tensor.shape
+    return final_stacked_tensor
 
 
 def remove_redundant_circuits(
@@ -319,7 +256,6 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
             block_size = model.position_embed.size(1) # Ottieni block_size dal modello
             idx_cond = idx if idx.size(1) <= block_size else idx[:, -block_size:]
             print(f"Input al modello (step {_}, shape {idx_cond.shape}): {[itos[i.item()] for i in idx_cond[0]]}")
-
 
             # 3. Ottieni i logits dal modello
             logits, _ = model(idx_cond) # Shape logits: (1, T_current, vocab_size)
