@@ -7,8 +7,6 @@ import numpy as np
 from tqdm import tqdm
 import logging
 import time
-from datetime import datetime
-import re
 
 from src.quantum_transformer import QuantumTransformerModel
 
@@ -82,17 +80,21 @@ class DanteDataset(Dataset):
 
 def train_dante_model(epochs=20, batch_size=16, block_size=128, learning_rate=3e-4, save_every=5, fast_mode=False):
     """Train the Quantum Transformer model on Dante's Inferno."""
+    # Get absolute paths for better reliability
+    base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    
     # Create checkpoint directory
-    checkpoint_dir = os.path.join("model_checkpoints", "dante")
+    checkpoint_dir = os.path.join(base_dir, "model_checkpoints", "dante")
     os.makedirs(checkpoint_dir, exist_ok=True)
     
     # Dataset paths
-    text_path = os.path.join("dataset", "inferno.txt")
+    text_path = os.path.join(base_dir, "dataset", "inferno.txt")
     
-    # Download Dante's Inferno if not present
+    # Verify that inferno.txt exists
     if not os.path.exists(text_path):
-        logger.info("Inferno.txt not found. Downloading...")
-        _download_inferno(text_path)
+        raise FileNotFoundError(f"Il file {text_path} non esiste. Assicurati di aver copiato inferno.txt nella cartella dataset.")
+    else:
+        logger.info(f"Utilizzo del file di testo: {text_path}")
     
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -106,7 +108,11 @@ def train_dante_model(epochs=20, batch_size=16, block_size=128, learning_rate=3e
         block_size = 64
         learning_rate = 5e-4
     
-    dataset = DanteDataset(text_path, block_size=block_size)
+    try:
+        dataset = DanteDataset(text_path, block_size=block_size)
+    except Exception as e:
+        logger.error(f"Error creating dataset: {e}")
+        raise
     
     # Split dataset
     train_size = int(0.9 * len(dataset))
@@ -160,6 +166,8 @@ def train_dante_model(epochs=20, batch_size=16, block_size=128, learning_rate=3e
     val_losses = []
     
     logger.info(f"Starting training for {epochs} epochs")
+    
+    # Training loop
     for epoch in range(epochs):
         start_time = time.time()
         
@@ -252,68 +260,3 @@ def train_dante_model(epochs=20, batch_size=16, block_size=128, learning_rate=3e
     logger.info(f"Final model saved to {final_model_path}")
     
     return model
-
-def _download_inferno(output_path):
-    """Download Dante's Inferno text file."""
-    import requests
-    
-    # URL for Dante's Inferno in Italian
-    url = "https://www.gutenberg.org/files/1012/1012-0.txt"
-    
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        
-        # Extract Inferno part (simple approach)
-        text = response.text
-        
-        # Extract only Inferno (approximate method)
-        inferno_start = text.find("INFERNO")
-        purgatorio_start = text.find("PURGATORIO")
-        
-        if inferno_start != -1 and purgatorio_start != -1:
-            inferno_text = text[inferno_start:purgatorio_start]
-        else:
-            inferno_text = text
-        
-        # Clean text
-        inferno_text = _clean_text(inferno_text)
-        
-        # Save to file
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(inferno_text)
-        
-        logger.info(f"Downloaded and processed Inferno text to {output_path}")
-        
-    except Exception as e:
-        logger.error(f"Error downloading Inferno: {e}")
-        raise
-
-def _clean_text(text):
-    """Clean and normalize text."""
-    # Remove headers and footers (specific to Project Gutenberg)
-    lines = text.split('\n')
-    content_lines = []
-    in_content = False
-    
-    for line in lines:
-        if "*** START OF THE PROJECT GUTENBERG" in line:
-            in_content = True
-            continue
-        elif "*** END OF THE PROJECT GUTENBERG" in line:
-            in_content = False
-            break
-        
-        if in_content and line.strip():
-            content_lines.append(line)
-    
-    # Join and normalize text
-    text = '\n'.join(content_lines)
-    
-    # Normalize whitespace
-    text = re.sub(r'\s+', ' ', text)
-    
-    # Remove non-printable characters
-    text = ''.join(c for c in text if c.isprintable() or c.isspace())
-    
-    return text
