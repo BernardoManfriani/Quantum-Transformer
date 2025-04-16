@@ -46,7 +46,6 @@ def prepare_attention_inputs(
     pos: Tensor,
     query_weights: Tensor,
     key_weights: Tensor,
-    physchem: Optional[Tensor] = None,
 ) -> Tensor:
 
     batch_size = tok.size(0)
