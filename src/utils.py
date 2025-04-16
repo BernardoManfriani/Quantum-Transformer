@@ -219,7 +219,7 @@ def repopulate_tensor(
     # Reshape to the original (batch, seq_len, seq_len) format
     return reconstructed_tensor.view(batch_size, seq_len, seq_len)
 
-def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=None):
+def generate_smiles(model=None, prompt_smiles="C", max_len=24, temperature=1.0, top_k=None):
     """
     Genera una sequenza SMILES autoregressivamente partendo da un prompt.
 
@@ -234,8 +234,6 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
         str: La stringa SMILES generata.
     """
     model.eval()
-    checkpoint = torch.load('./model_checkpoints/model_epoch_20.pt')
-    model.load_state_dict(checkpoint['model_state_dict'])
     device = next(model.parameters()).device
 
     vocab = ['#', '(', ')', '-', '1', '2', '3', '4', '5', '<pad>', '=', 'C', 'F', 'N', 'O', '[C-]', '[CH-]', '[CLS]', '[EOS]', '[N+]', '[N-]', '[NH+]', '[NH2+]', '[NH3+]', '[O-]', '[c-]', '[cH-]', '[n-]', '[nH+]', '[nH]', 'c', 'n', 'o']
@@ -267,7 +265,7 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
             # Questo è cruciale perché il modello ha un embedding posizionale fisso
             block_size = model.position_embed.size(1) # Ottieni block_size dal modello
             idx_cond = idx if idx.size(1) <= block_size else idx[:, -block_size:]
-            print(f"Input al modello (step {_}, shape {idx_cond.shape}): {[itos[i.item()] for i in idx_cond[0]]}")
+            # print(f"Input al modello (step {_}, shape {idx_cond.shape}): {[itos[i.item()] for i in idx_cond[0]]}")
 
             # 3. Ottieni i logits dal modello
             logits, _ = model(idx_cond) # Shape logits: (1, T_current, vocab_size)
@@ -295,10 +293,10 @@ def generate_smiles(model, prompt_smiles, max_len=24, temperature=1.0, top_k=Non
 
             # 10. Controlla se è stato generato [EOS]
             if idx_next.item() == eos_idx:
-                print("Generato token [EOS]. Interruzione.")
+                # print("Generato token [EOS]. Interruzione.")
                 break
-            else:
-                print(f"Generato token {itos[idx_next.item()]}")
+            # else:
+                # print(f"Generato token {itos[idx_next.item()]}")
 
 
     # 11. Decodifica la sequenza finale

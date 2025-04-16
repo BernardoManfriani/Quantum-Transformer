@@ -166,11 +166,17 @@ class AttentionQuantumFunction(Function):
         shift, quantum_circuit, batch_size, block_size = ctx.shift, ctx.quantum_circuit, ctx.batch_size, ctx.block_size
         quantum_gradient_method, epsilon = ctx.quantum_gradient_method, ctx.epsilon
 
-
+        grad_output = grad_outputs[0]  # Shape: (batch_size, block_size, block_size)
         _, groups, param_count = cleaned_circuit_parameters.shape
         device = cleaned_circuit_parameters.device
-        gradients = torch.zeros_like(cleaned_circuit_parameters)
 
+        # Appiattisci il grad_output
+        grad_output_flat = grad_output.reshape(-1)  # Shape: (batch_size * block_size * block_size)
+        
+        # Prepara un tensore di gradienti zero per tutti i circuiti
+        flat_gradients = torch.zeros(batch_size * block_size * block_size, groups, param_count, device=device)
+        
+        # Calcola il gradiente solo per i circuiti nel triangolo inferiore
         if quantum_gradient_method == "spsa":
             delta = (torch.randint(0, 2, cleaned_circuit_parameters.shape, device=device).float() * 2 - 1) * epsilon
             params_plus, params_minus = cleaned_circuit_parameters + delta, cleaned_circuit_parameters - delta
@@ -179,12 +185,12 @@ class AttentionQuantumFunction(Function):
                 num_circuits = params_plus.size(0)
                 exp_plus = exp_concat[:num_circuits]
                 exp_minus = exp_concat[num_circuits:]
-            exp_diff = (exp_plus - exp_minus).unsqueeze(-1).unsqueeze(-1)
-            spsa_gradient_unique = exp_diff.to(device) / (2 * delta)
-
-            gradients_flat = torch.zeros((batch_size * block_size * block_size, groups, param_count), device=device)
-            gradients_flat[lower_triangle_indices] = spsa_gradient_unique[unique_index_mapping]
-            gradients = gradients_flat.view(batch_size * block_size * block_size, groups, param_count)
+            
+            exp_diff = (exp_plus - exp_minus) / (2 * delta)  # Shape: (num_unique_circuits,)
+            
+            # Propaga il gradiente attraverso il mapping
+            for i, (idx, unique_idx) in enumerate(zip(lower_triangle_indices.tolist(), unique_index_mapping.tolist())):
+                flat_gradients[idx] = exp_diff[unique_idx].unsqueeze(-1).unsqueeze(-1) * grad_output_flat[idx]
 
         elif quantum_gradient_method == "parameter-shift":
             shift_right_tensors = []
@@ -207,9 +213,15 @@ class AttentionQuantumFunction(Function):
                 all_grad_expectation_left = quantum_circuit.run(all_shift_left).reshape(groups * param_count, -1)
 
             gradient_estimates = (all_grad_expectation_right - all_grad_expectation_left) / (2 * shift)
-            gradients_unique = gradient_estimates.T.reshape(-1, groups, param_count)
-            gradients_flat = torch.zeros((batch_size * block_size * block_size, groups, param_count), device=device)
-            gradients_flat[lower_triangle_indices] = gradients_unique[unique_index_mapping]
-            gradients = gradients_flat.view(batch_size * block_size * block_size, groups, param_count)
+            
+            # Calcola il gradiente per ogni parametro nelle posizioni del triangolo inferiore
+            for i, (idx, unique_idx) in enumerate(zip(lower_triangle_indices.tolist(), unique_index_mapping.tolist())):
+                for g in range(groups):
+                    for p in range(param_count):
+                        param_idx = g * param_count + p
+                        flat_gradients[idx, g, p] = gradient_estimates[param_idx, i] * grad_output_flat[idx]
 
+        # Ristruttura il gradiente nella forma originale
+        gradients = flat_gradients.view(batch_size, block_size, block_size, groups, param_count)
+        
         return gradients, None, None, None, None, None, None, None
