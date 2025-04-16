@@ -1,8 +1,6 @@
 from typing import List, Optional, Tuple
 
 import torch
-from rdkit import Chem
-from rdkit.Chem import Crippen, Descriptors, rdMolDescriptors
 from torch import Tensor
 
 import torch
