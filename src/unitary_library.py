@@ -92,3 +92,31 @@ def controlled_unitary(
             else:
                 x.ctrl(control, qubits[i], qubits[start]) 
 
+
+@cudaq.kernel
+def build_sequence_only_circuit(
+    token_i: list[float],
+    position_i: list[float],
+    query: list[float],
+    token_j: list[float],
+    position_j: list[float],
+    key: list[float],
+    ansatz_layers: list[int],
+    num_working_qubits: list[int],
+):
+    layers = ansatz_layers[0]
+    ancilla = cudaq.qubit()
+    register = cudaq.qvector(num_working_qubits[0])
+    subsystem_size = num_working_qubits[0] // 2
+
+    h(ancilla)  # type: ignore  # noqa: F821
+    unitary(register, token_i, subsystem_size, 0, layers)
+    unitary(register, position_i, subsystem_size, 1, layers)
+    unitary(register, query, subsystem_size, -1, layers)
+    controlled_adjoint_unitary(ancilla, register, query, subsystem_size, -1, layers)
+    controlled_adjoint_unitary(ancilla, register, position_i, subsystem_size, 1, layers)
+    controlled_adjoint_unitary(ancilla, register, token_i, subsystem_size, 0, layers)
+    controlled_unitary(ancilla, register, token_j, subsystem_size, 0, layers)
+    controlled_unitary(ancilla, register, position_j, subsystem_size, 1, layers)
+    controlled_unitary(ancilla, register, key, subsystem_size, -1, layers)
+    h(ancilla)  # type: ignore  # noqa: F821
