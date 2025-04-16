@@ -1,5 +1,5 @@
 import torch
-from src.utils import generate_smiles
+from src.utils import generate_smiles, generate_text
 from src.quantum_transformer import QuantumTransformerModel
 
 BATCH_SIZE = 1
@@ -28,11 +28,24 @@ def main():
     model.eval() 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu") 
     model.to(device)
-    prompt = "C"
-    target_len = 24
-    generated_smiles = generate_smiles(model, prompt, max_len=target_len, temperature=0.8, top_k=5)
-    print(f"Prompt: {prompt}")
-    print(f"Generato (max_len={target_len}): {generated_smiles}")
+    generated_smiles = generate_smiles(
+      model, 
+      "C", 
+      max_len=24, 
+      temperature=0.8, 
+      top_k=5
+    )
+    print(f"generated_smiles: {generated_smiles}")
+
+    generated_text = generate_text(
+        model=model,
+        prompt_tokens="Nel mezzo del cammin", 
+        max_len=100,
+        temperature=0,
+        top_k=5,
+        block_size=1
+    )
+    print(f"generated_text: {generated_text}")
 
 if __name__ == '__main__':
     main()
