@@ -87,14 +87,23 @@ def train_dante_model(epochs=20, batch_size=16, block_size=128, learning_rate=3e
     checkpoint_dir = os.path.join(base_dir, "model_checkpoints", "dante")
     os.makedirs(checkpoint_dir, exist_ok=True)
     
-    # Dataset paths
-    text_path = os.path.join(base_dir, "dataset", "inferno.txt")
     
-    # Verify that inferno.txt exists
-    if not os.path.exists(text_path):
-        raise FileNotFoundError(f"Il file {text_path} non esiste. Assicurati di aver copiato inferno.txt nella cartella dataset.")
+    if fast_mode:
+        logger.info("Running in fast mode for testing purposes.")
+        text_path = os.path.join(base_dir, "dataset", "inferno_small.txt")
+        #verify that inferno_small.txt exists
+        if not os.path.exists(text_path):
+            raise FileNotFoundError(f"Il file {text_path} non esiste. Assicurati di aver copiato inferno_small.txt nella cartella dataset.")
+        else:
+            logger.info(f"Utilizzo del file di testo: {text_path}")
     else:
-        logger.info(f"Utilizzo del file di testo: {text_path}")
+        # Use the full dataset for training
+        text_path = os.path.join(base_dir, "dataset", "inferno.txt")
+        # Verify that inferno.txt exists
+        if not os.path.exists(text_path):
+            raise FileNotFoundError(f"Il file {text_path} non esiste. Assicurati di aver copiato inferno.txt nella cartella dataset.")
+        else:
+            logger.info(f"Utilizzo del file di testo: {text_path}")
     
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -104,9 +113,9 @@ def train_dante_model(epochs=20, batch_size=16, block_size=128, learning_rate=3e
     if fast_mode:
         # Use smaller settings for faster training
         epochs = 2
-        batch_size = 8
+        batch_size = 4
         block_size = 64
-        learning_rate = 5e-4
+        learning_rate = 1e-3
     
     try:
         dataset = DanteDataset(text_path, block_size=block_size)
