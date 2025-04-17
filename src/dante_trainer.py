@@ -112,8 +112,8 @@ def train_dante_model(epochs=20, batch_size=16, block_size=128, learning_rate=3e
     # Load dataset
     if fast_mode:
         # Use smaller settings for faster training
-        epochs = 2
-        batch_size = 4
+        epochs = 1
+        batch_size = 2
         block_size = 64
         learning_rate = 1e-3
     
