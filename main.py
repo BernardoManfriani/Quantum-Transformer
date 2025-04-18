@@ -3,6 +3,11 @@ import argparse
 from src.utils import generate_smiles, generate_text
 from src.quantum_transformer import QuantumTransformerModel
 from src.dante_trainer import train_dante_model
+import os
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 1
 SEQ_LENGTH = 10 
@@ -33,6 +38,7 @@ def main():
     generate_parser.add_argument("--max_len", type=int, default=100, help="Maximum length to generate")
     generate_parser.add_argument("--temperature", type=float, default=0.8, help="Temperature for sampling")
     generate_parser.add_argument("--top_k", type=int, default=5, help="Top-k for sampling")
+    generate_parser.add_argument("--checkpoint", type=str, help="Specific checkpoint to load")
     
     args = parser.parse_args()
     
@@ -48,24 +54,53 @@ def main():
         
     elif args.command == "generate":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info(f"Using device: {device}")
         
         if args.model == "smile":
             vocab_size = 33
-            checkpoint_path = './model_checkpoints/smile/model_epoch_20.pt'
+            block_size = BLOCK_SIZE
+            checkpoint_path = args.checkpoint if args.checkpoint else './model_checkpoints/smile/model_epoch_20.pt'
         else:  # dante
-            vocab_size = 78  # Italian vocabulary size
-            checkpoint_path = './model_checkpoints/dante/best_dante_model.pt'
+            vocab_size = 79  # Updated from 78 to 79 based on the error
+            block_size = 8  # Use the block size from the checkpoint
+            checkpoint_path = args.checkpoint if args.checkpoint else './model_checkpoints/dante/best_dante_model.pt'
         
+        # Make sure checkpoint exists
+        if not os.path.exists(checkpoint_path):
+            logger.error(f"Checkpoint not found: {checkpoint_path}")
+            available_checkpoints = []
+            if args.model == "dante":
+                checkpoint_dir = './model_checkpoints/dante/'
+                if os.path.exists(checkpoint_dir):
+                    available_checkpoints = os.listdir(checkpoint_dir)
+            if available_checkpoints:
+                logger.info(f"Available checkpoints: {available_checkpoints}")
+            return
+        
+        logger.info(f"Loading checkpoint from {checkpoint_path}")
+        
+        # First load the checkpoint to get the actual parameters
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        
+        # Initialize model with the correct dimensions from the checkpoint
         model = QuantumTransformerModel(
             qpu_count=QPU_COUNT,
             vocab_size=vocab_size,
             embed_dim=EMBED_DIM,
-            block_size=BLOCK_SIZE if args.model == "smile" else 128,  # Different block size for Dante
+            block_size=block_size,
             num_qubits=NUM_QUBITS,
             ansatz_layers=ANSATZ_LAYERS,
             quantum_gradient_method='spsa', 
             epsilon=0.01
         )
+        
+        # Load the state dict
+        try:
+            model.load_state_dict(checkpoint['model_state_dict'])
+            logger.info("Model loaded successfully")
+        except Exception as e:
+            logger.error(f"Error loading model: {e}")
+            return
      
         model.eval() 
         model.to(device)
@@ -87,7 +122,7 @@ def main():
                 max_len=args.max_len,
                 temperature=args.temperature,
                 top_k=args.top_k,
-                block_size=128
+                block_size=block_size
             )
             print(f"Generated text: {generated_text}")
     
