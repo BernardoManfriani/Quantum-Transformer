@@ -113,9 +113,9 @@ def train_dante_model(epochs=20, batch_size=16, block_size=128, learning_rate=3e
     if fast_mode:
         # Use smaller settings for faster training
         epochs = 1
-        batch_size = 2
-        block_size = 16
-        learning_rate = 2e-2
+        batch_size = 1
+        block_size = 8
+        learning_rate = 5e-2
     
     try:
         dataset = DanteDataset(text_path, block_size=block_size)
